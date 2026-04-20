@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImGui Rendering - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html" class="active">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>ImGui Rendering</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>What Is Immediate-Mode GUI?</h2>
+
+    <p>ImGui (Dear ImGui) is an "immediate mode" GUI library, meaning there are no persistent
+    UI objects or state stored in the GUI layer. Instead, you call functions like
+    <code>ImGui::Text()</code> and <code>ImGui::Button()</code> every render frame, and ImGui
+    draws them and reports input. If a window is invisible, you simply do not call its render
+    function that frame &mdash; there is nothing to hide or show, you just stop or start
+    drawing it.</p>
+
+    <p>This model is well-suited for a DPS tracker because the data changes constantly and
+    you want the display to always reflect the current state without maintaining a parallel
+    UI data structure. Every frame, <code>MyDPSRenderer</code> reads whatever is currently
+    in <code>MyDPSEngine</code> and draws it. No synchronization needed.</p>
+
+    <h2>Three Windows</h2>
+
+    <p><code>MyDPSRenderer</code> draws three independent windows per frame. Each checks
+    its own visibility flag before doing any work:</p>
+
+    <table>
+        <thead><tr><th>Window</th><th>Toggle</th><th>Visibility flag</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr>
+                <td>DPS Report</td>
+                <td><code>/mydps</code> or <code>show/hide</code></td>
+                <td><code>engine.showMainWindow</code></td>
+                <td>Main window with menu bar and 5 tabs. Font scaled by <code>fontScale</code>.</td>
+            </tr>
+            <tr>
+                <td>DPS Config</td>
+                <td><code>/mydps config</code> or Config menu item</td>
+                <td><code>engine.showConfigWindow</code></td>
+                <td>Separate settings window with data-driven layout. Font scaled by <code>fontScale</code>.</td>
+            </tr>
+            <tr>
+                <td>Combat Spam</td>
+                <td><code>/mydps spam</code> or "Show Combat Spam" checkbox</td>
+                <td><code>engine.showCombatSpam</code></td>
+                <td>Floating overlay with recent events newest-at-top. Font scaled by <code>spamFontScale</code>.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>The Color Lookup Lambda</h2>
+
+    <p>Every rendering function that needs to color text defines a local lambda named
+    <code>C</code> (or <code>Clr</code> in the History tab). This is a key code pattern
+    used throughout the renderer:</p>
+
+    <pre><code>auto C = [&amp;](const char* key) -&gt; ImVec4 {
+    auto it = engine.settings.damageColors.find(key);
+    return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+};</code></pre>
+
+    <p>With this lambda, coloring a text call looks like:</p>
+
+    <pre><code>ImGui::TextColored(C("dps"), "%.1f", battleDPS);</code></pre>
+
+    <p>The lambda does a hash map lookup in <code>settings.damageColors</code> and returns
+    white as a safe default if the key is missing. This pattern prevents verbose repeated
+    lookups and centralizes the fallback behavior. The lambda captures the engine reference
+    by reference (<code>[&amp;]</code>), so it always reads the current settings.</p>
+
+    <h2>Font Scaling</h2>
+
+    <p>Both the main window and config window push a scaled font before drawing any content,
+    and pop it after. This scales all text rendered between the push and pop calls:</p>
+
+    <pre><code>ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * engine.settings.fontScale);
+// ... all window contents ...
+ImGui::PopFont();</code></pre>
+
+    <p>Passing <code>nullptr</code> as the first argument means "use the default font, just
+    at a different size". <code>FontSizeBase</code> is the base size of the current font.
+    Multiplying it by <code>fontScale</code> (range 0.5&ndash;2.0) scales the entire
+    window's text proportionally. The combat spam overlay uses <code>spamFontScale</code>
+    the same way, allowing the overlay to be sized independently from the main window.</p>
+
+    <h2>Main Window</h2>
+
+    <h3>Window Identity</h3>
+
+    <p>The window title includes the character name:</p>
+
+    <pre><code>auto windowName = fmt::format("DPS Report##{}", engine.charName);</code></pre>
+
+    <p>ImGui uses window titles as unique IDs. The <code>##</code> separator means everything
+    after it is part of the ID but not shown in the title bar. Including the character name
+    means two MQMyDPS instances (e.g., running in two EQ windows) have separate ImGui windows
+    that do not conflict.</p>
+
+    <h3>Menu Bar</h3>
+
+    <p>The main window has a menu bar created with <code>ImGui::BeginMenuBar()</code>. Unlike
+    a full dropdown menu, the items here are rendered inline as a compact single-row bar.
+    Each item uses <code>ImGui::MenuItem()</code>:</p>
+
+    <ul>
+        <li><strong>Start/Stop</strong> &mdash; Toggles <code>engine.tracking</code>. Shows
+        "Stop" when tracking is active, "Start" when it is not. Uses Material Design icon
+        font characters (<code>ICON_MD_STOP</code>, <code>ICON_MD_PLAY_ARROW</code>) before
+        the label.</li>
+        <li><strong>Reset</strong> &mdash; Calls <code>engine.ResetAll()</code>.</li>
+        <li><strong>Config</strong> &mdash; Toggles the config window.</li>
+        <li><strong>DPS: X.X</strong> &mdash; Live session DPS, colored using the "dps"
+        color key (gold by default). Updated every frame.</li>
+        <li><strong>[COMBAT]</strong> &mdash; Shown in red when <code>engine.inCombat</code>
+        is true.</li>
+    </ul>
+
+    <div class="note">
+        <strong>DPS counter color:</strong> The menu bar DPS display uses
+        <code>ImGui::TextColored(dpsColor, "DPS: %.1f", ...)</code> where
+        <code>dpsColor</code> is looked up from <code>engine.settings.damageColors["dps"]</code>,
+        defaulting to gold (1.0, 0.9, 0.4) if not found.
+    </div>
+
+    <h3>Tab Bar (5 Tabs)</h3>
+
+    <p>The main window contains a tab bar with five tabs. This is the current tab order:</p>
+
+    <ol>
+        <li>Current Battle</li>
+        <li>History</li>
+        <li>Targets</li>
+        <li>Healing</li>
+        <li>Graphs</li>
+    </ol>
+
+    <h2>Tab: Current Battle</h2>
+
+    <p>If no battle is active and no battle damage has been recorded, a hint text is shown.
+    Otherwise, the tab renders a 2-column statistics table using the color lookup lambda.
+    Stat values are individually colored by their data type. The rows are:</p>
+
+    <table>
+        <thead><tr><th>Row label</th><th>Source data</th><th>Color key</th><th>Format</th></tr></thead>
+        <tbody>
+            <tr><td>DPS</td><td><code>engine.GetBattleDPS()</code></td><td>"dps"</td><td>%.1f</td></tr>
+            <tr><td>Duration</td><td><code>engine.GetBattleDuration()</code></td><td>"duration"</td><td>%.0fs</td></tr>
+            <tr><td>Total Damage</td><td><code>engine.battleDamage</code></td><td>"total"</td><td>FormatNumber (1.2k, 3.4m)</td></tr>
+            <tr><td>Avg Damage</td><td><code>battleDamage / battleHitCount</code></td><td>"avg"</td><td>%.1f</td></tr>
+            <tr><td>Hits</td><td><code>engine.battleHitCount</code></td><td>"total"</td><td>integer</td></tr>
+            <tr><td>Crit Damage</td><td><code>engine.battleCritDamage</code></td><td>"crit"</td><td>FormatNumber</td></tr>
+            <tr><td>DoT Damage</td><td><code>engine.battleDotDamage</code></td><td>"dot"</td><td>FormatNumber</td></tr>
+            <tr><td>Pet Damage</td><td><code>engine.battlePetDamage</code></td><td>"pet"</td><td>FormatNumber</td></tr>
+            <tr><td>Non-Melee</td><td><code>engine.battleNonMeleeDmg</code></td><td>"non-melee"</td><td>FormatNumber</td></tr>
+            <tr><td>Heals</td><td><code>engine.battleDirectHeals</code></td><td>"heal"</td><td>FormatNumber</td></tr>
+            <tr><td>Crit Heals</td><td><code>engine.battleCritHeals</code></td><td>"critHeals"</td><td>FormatNumber</td></tr>
+        </tbody>
+    </table>
+
+    <p>Below the stats table, if there are active damage targets, a 4-column targets table
+    appears (Name, DPS, Hits, Total). Target names are rendered with the "dmg-target" color
+    key (reddish pink), DPS values with "dps" (gold), hit counts and totals with "total"
+    (white).</p>
+
+    <p>If there are active heal targets, a separate 3-column healed-players table appears
+    (Player, Heals, Total). Player names use the "heal-target" color key (light blue) to
+    visually distinguish them from damage target names. Heal totals use the "heal" color
+    key (green).</p>
+
+    <h2>Tab: History</h2>
+
+    <p>The history table has <strong>12 columns</strong>, all hideable and reorderable
+    except Battle# which is marked <code>ImGuiTableColumnFlags_NoHide</code>. The full
+    column list:</p>
+
+    <table>
+        <thead><tr><th>Column</th><th>Color key</th><th>Battle row</th><th>Expanded target row</th><th>Expanded heal row</th></tr></thead>
+        <tbody>
+            <tr><td>Battle#</td><td>(TreeNode)</td><td>TreeNode label: "Battle (N) NPC (N) Healed (N)". NoHide flag.</td><td>Target name with spawn ID, "dmg-target" color</td><td>Player name, "heal-target" color</td></tr>
+            <tr><td>DPS</td><td>"dps"</td><td>Battle DPS. DefaultSort flag.</td><td>Per-target DPS</td><td>"-"</td></tr>
+            <tr><td>Duration</td><td>"duration"</td><td>Battle duration (seconds)</td><td>Per-target duration</td><td>"-"</td></tr>
+            <tr><td>Avg</td><td>"avg"</td><td>Average damage per hit</td><td>Per-target avg damage</td><td>"-"</td></tr>
+            <tr><td>Crits</td><td>"crit"</td><td>Battle crit damage total</td><td>Per-target crit damage</td><td>"-"</td></tr>
+            <tr><td>DoTs</td><td>"dot"</td><td>Battle DoT damage total</td><td>Per-target DoT damage</td><td>"-"</td></tr>
+            <tr><td>Pet</td><td>"pet"</td><td>Battle pet damage total</td><td>Per-target pet damage</td><td>"-"</td></tr>
+            <tr><td>Non-Melee</td><td>"non-melee"</td><td>Battle non-melee total</td><td>Per-target non-melee damage</td><td>"-"</td></tr>
+            <tr><td>Heals</td><td>"heal"</td><td>Battle direct heals total</td><td>"-"</td><td>Player's directHeals</td></tr>
+            <tr><td>Crit Heals</td><td>"critHeals"</td><td>Battle crit heals total</td><td>"-"</td><td>Player's critHeals</td></tr>
+            <tr><td>Total</td><td>"total"</td><td>Total damage this battle</td><td>Per-target total damage</td><td>"-"</td></tr>
+            <tr><td>Total Heals</td><td>"heal"</td><td>directHeals + critHeals</td><td>"-"</td><td>Player's GetTotalHeals()</td></tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        <strong>Table flags:</strong> The History table uses
+        <code>ImGuiTableFlags_Hideable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_ScrollY</code>
+        in addition to the standard <code>RowBg | Borders | Resizable</code> flags. This means
+        you can right-click the header row to show/hide any column except Battle# (which has
+        the <code>NoHide</code> flag), and you can drag column headers to rearrange them. The
+        <code>ScrollY</code> flag enables vertical scrolling when many battles are recorded.
+    </div>
+
+    <p>Each row represents one completed battle. The Battle# column contains a
+    <code>TreeNode</code> whose label reads
+    <code>"Battle (N) NPC (N) Healed (N)"</code>, showing the battle number, the
+    number of damage targets, and the number of healed players at a glance. When
+    expanded, per-target sub-rows appear within the same 12-column layout. Target name
+    cells use "dmg-target" coloring (reddish pink). Columns that do not apply to target
+    rows (the heal-related columns) show a dash ("-") rendered in the "duration" color.</p>
+
+    <p>After the per-target damage rows, if the battle has heal data, one row per
+    healed player appears directly (no header row). Heal target names use "heal-target"
+    coloring (light blue). The Heals column shows <code>directHeals</code>, Crit Heals
+    shows <code>critHeals</code>, and Total Heals shows the combined
+    <code>GetTotalHeals()</code> value. All damage-related columns show dashes for
+    heal rows.</p>
+
+    <p>The tree node label format from the source:</p>
+
+    <pre><code>ImGui::TreeNode("##battle", "Battle (%d) NPC (%d) Healed (%d)",
+    b.battleNumber, static_cast&lt;int&gt;(b.targets.size()), static_cast&lt;int&gt;(b.healTargets.size()));</code></pre>
+
+    <p>Sort order is controlled by <code>settings.sortNewest</code>. When newest-first,
+    iteration starts from the last element of <code>battleHistory</code> and steps backward.
+    When oldest-first, it goes forward. Explicit integer indexing is used for backward
+    iteration because a range-for loop cannot easily iterate in reverse.</p>
+
+    <h2>Tab: Targets</h2>
+
+    <p>Two sections separated by a horizontal line:</p>
+
+    <ul>
+        <li><strong>Current Battle Targets:</strong> A 5-column table (Name, DPS, Hits, Avg,
+        Total) reading live from <code>engine.currentTargets</code>. Updated every frame.
+        Shown only if the current battle has any targets.</li>
+        <li><strong>All Session Targets:</strong> A 4-column table (Name, Hits, Avg, Total)
+        aggregated across all completed battles plus the current one. The aggregation is
+        computed inside the render function by iterating all battles and summing every
+        <code>TargetDamageData</code> field by spawn ID (totalDamage, critDamage, dotDamage,
+        dsDamage, petDamage, nonMeleeDamage, hitCount, missCount). Results are sorted by
+        total damage descending. The table uses <code>ImGuiTableFlags_ScrollY</code> for
+        vertical scrolling when many targets have been recorded across the session.</li>
+    </ul>
+
+    <h2>Tab: Healing</h2>
+
+    <p>The Healing tab aggregates heal data from all completed battles
+    (<code>engine.battleHistory</code>) and the current in-progress battle
+    (<code>engine.currentHealTargets</code>) into a unified per-player map. This means it
+    shows your total healing output for the entire session, not just one battle.</p>
+
+    <p>The aggregated results are sorted by <code>GetTotalHeals()</code> descending so the
+    player you healed the most appears at the top.</p>
+
+    <p>The table has 5 columns, all hideable and reorderable except "Player" which is
+    marked <code>NoHide</code>:</p>
+
+    <table>
+        <thead><tr><th>Column</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td>Player</td><td>Player name (NoHide). Name healed.</td></tr>
+            <tr><td>Direct Heals</td><td>Sum of all DirectHeal amounts for this player</td></tr>
+            <tr><td>Crit Heals</td><td>Sum of all CritHeal bonus amounts associated with this player</td></tr>
+            <tr><td>Count</td><td>Number of direct heal cast events</td></tr>
+            <tr><td>Total</td><td>directHeals + critHeals combined</td></tr>
+        </tbody>
+    </table>
+
+    <p>Below the table, the Healing tab also shows a pie chart labeled "Healing Distribution
+    by Player". This uses the same ImPlot <code>PlotPieChart</code> approach as the damage
+    pie chart in the Graphs tab, with each player's total heals as their slice value.</p>
+
+    <div class="note">
+        <strong>Heal counts vs crit heals per player:</strong> <code>healCount</code> in
+        <code>HealTargetData</code> counts only <code>DirectHeal</code> events, not
+        <code>CritHeal</code> events. Critical heal messages do not include a target name
+        in EQ's chat format, so they cannot be attributed to a specific player. The
+        <code>critHeals</code> field in <code>HealTargetData</code> is present in the struct
+        but is currently zero for all players because crit heals are only accumulated at
+        the battle level (<code>battleCritHeals</code>), not per player.
+    </div>
+
+    <h2>Tab: Graphs</h2>
+
+    <p>A checkbox toggles between line/bar chart mode and pie chart mode. Both use ImPlot.</p>
+
+    <p><strong>Line/bar mode</strong> renders two plots stacked vertically:</p>
+    <ol>
+        <li>"DPS by Battle" &mdash; an ImPlot <code>PlotLine</code> with battle number on
+        the X axis and DPS on the Y axis.</li>
+        <li>"Total Damage by Battle" &mdash; an ImPlot <code>PlotBars</code> with battle
+        number on X and total damage on Y.</li>
+    </ol>
+
+    <p>Both plots use axis constraint calls to lock the minimum at 0,0:</p>
+
+    <pre><code>ImPlot::SetupAxisLimitsConstraints(ImAxis_X1, 0, HUGE_VAL);
+ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);</code></pre>
+
+    <p>This prevents the axes from ever going negative, which would be visually confusing
+    for a damage chart. Without these constraints, ImPlot can auto-scale to show negative
+    space when the data values are small.</p>
+
+    <p><strong>Pie chart mode</strong> aggregates total damage by target name across all
+    battles and current targets, then renders an ImPlot <code>PlotPieChart</code>. Entries
+    are sorted by damage descending before being passed to ImPlot, so the largest slice
+    always starts at the top.</p>
+
+    <h2>Combat Spam Overlay</h2>
+
+    <h3>Window Flags</h3>
+
+    <pre><code>ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoFocusOnAppearing;
+if (engine.settings.spamClickThrough)
+    flags |= ImGuiWindowFlags_NoInputs;</code></pre>
+
+    <p>The spam overlay is always borderless and never steals focus when it first appears.
+    When <code>spamClickThrough</code> is true (the default), <code>ImGuiWindowFlags_NoInputs</code>
+    is added. This flag tells ImGui to pass all mouse input (clicks, hover, scroll) through
+    the window to whatever is underneath it. The result is that you can click on EverQuest's
+    game world through the spam overlay without it intercepting any mouse events.</p>
+
+    <p>When <code>spamClickThrough</code> is false, the overlay is a normal interactive window
+    that you can drag by clicking its body. This is useful if you want to reposition it, but
+    during active combat it means your left clicks on monsters may accidentally drag the
+    overlay instead.</p>
+
+    <p>The <code>/mydps lock</code> command toggles <code>spamClickThrough</code> at runtime.
+    The "Lock Spam Window" checkbox in the config window does the same thing.</p>
+
+    <h3>Background Transparency</h3>
+
+    <pre><code>ImGui::SetNextWindowBgAlpha(engine.settings.bgColor.w);</code></pre>
+
+    <p>The background alpha is taken from the W component (alpha) of <code>bgColor</code>.
+    The default value is 0.5, giving a semi-transparent background. Setting it to 0.0 makes
+    the overlay fully transparent (just floating text). Setting it to 1.0 gives a fully
+    opaque background.</p>
+
+    <h3>Newest-at-Top Rendering</h3>
+
+    <p>The spam overlay iterates <code>engine.recentRecords</code> using a <em>reverse</em>
+    iterator (<code>rbegin</code> to <code>rend</code>), so the most recent event always
+    appears at the top of the overlay. Events older than <code>displayTime</code> seconds
+    are skipped:</p>
+
+    <pre><code>for (auto it = engine.recentRecords.rbegin(); it != engine.recentRecords.rend(); ++it)
+{
+    const auto&amp; rec = *it;
+    auto age = std::chrono::duration_cast&lt;std::chrono::seconds&gt;(now - rec.timestamp).count();
+    if (age > engine.settings.displayTime)
+        continue;
+    // render the record
+}</code></pre>
+
+    <p>Records are not removed from the deque during rendering &mdash; cleanup is handled
+    separately by <code>CleanExpiredRecords()</code> in <code>OnPulse</code>. The render
+    loop simply skips records that are too old to display.</p>
+
+    <h3>Content Rendering</h3>
+
+    <p>The color for each line is looked up from <code>settings.damageColors</code> using
+    the attack verb for melee and pet melee events, and the <code>DamageTypeToColorKey()</code>
+    result for all others. If no matching key exists, white is used. DirectHeal events use
+    the "heal" key (green).</p>
+
+    <p>The text format depends on which display options are enabled:</p>
+
+    <table>
+        <thead><tr><th>showType</th><th>showTarget</th><th>Example output</th></tr></thead>
+        <tbody>
+            <tr><td>true</td><td>true</td><td><code>[crush] a skeleton: 150</code></td></tr>
+            <tr><td>true</td><td>false</td><td><code>[crush] 150</code></td></tr>
+            <tr><td>false</td><td>true</td><td><code>a skeleton: 150</code></td></tr>
+            <tr><td>false</td><td>false</td><td><code>150</code></td></tr>
+        </tbody>
+    </table>
+
+    <p>Miss events show "MISS" instead of a damage number. Heal events show the healed
+    player's name and the heal amount when both show options are active.</p>
+
+    <h2>Config Window</h2>
+
+    <h3>Data-Driven Layout</h3>
+
+    <p>Instead of writing separate ImGui calls for every setting, the config window defines
+    three arrays of structs at the top of <code>RenderConfig()</code>:</p>
+
+    <pre><code>struct BoolEntry  { const char* label; bool* value; };
+struct IntEntry   { const char* label; int*  value; int min; int max; };
+struct FloatEntry { const char* label; float* value; float min; float max; };
+
+BoolEntry bools[] = {
+    { "Show Type",         &amp;s.showType },
+    { "Show Target",       &amp;s.showTarget },
+    { "Show My Misses",    &amp;s.showMyMisses },
+    { "Show Missed Me",    &amp;s.showMissMe },
+    { "Show Hit Me",       &amp;s.showHitMe },
+    { "Show Crit Heals",   &amp;s.showCritHeals },
+    { "Show Damage Shield",&amp;s.showDS },
+    { "Track Pet",         &amp;s.addPet },
+    { "Show Combat Spam",  &amp;engine.showCombatSpam },
+    { "Sort Newest First", &amp;s.sortNewest },
+    { "Auto Start",        &amp;s.autoStart },
+    { "Lock Spam Window",  &amp;s.spamClickThrough },
+};</code></pre>
+
+    <p>Note that "Show Combat Spam" points to <code>engine.showCombatSpam</code> directly
+    (not a field on <code>MyDPSSettings</code>), because it is a window visibility flag
+    rather than an option setting. Adding a new boolean setting requires exactly one line
+    in the <code>bools</code> array &mdash; the rendering loop handles layout automatically.</p>
+
+    <h3>CollapsingHeaders</h3>
+
+    <p>Settings are organized into four collapsible sections, all open by default
+    (<code>ImGuiTreeNodeFlags_DefaultOpen</code>):</p>
+
+    <table>
+        <thead><tr><th>Section</th><th>Contents</th><th>Column width (pixels per col)</th></tr></thead>
+        <tbody>
+            <tr><td>Display</td><td>All bool checkboxes (12 entries)</td><td>165</td></tr>
+            <tr><td>Timing</td><td>Int sliders (Display Time, Battle End Delay)</td><td>220</td></tr>
+            <tr><td>Scale</td><td>Float sliders (Font Scale, Spam Font Scale)</td><td>220</td></tr>
+            <tr><td>Colors</td><td>Background color + all damageColors entries</td><td>150</td></tr>
+        </tbody>
+    </table>
+
+    <p>The column count for each section is computed dynamically:</p>
+
+    <pre><code>int sizeX = static_cast&lt;int&gt;(ImGui::GetWindowWidth());
+int col = std::max(1, sizeX / 165);  // For Display section</code></pre>
+
+    <p>This means when you make the config window wider, more checkboxes appear per row.
+    When you narrow it, they wrap to more rows. <code>std::max(1, ...)</code> ensures there
+    is always at least one column even if the window is very narrow.</p>
+
+    <h3>Save and Load Buttons</h3>
+
+    <ul>
+        <li><strong>Save</strong> &mdash; Calls <code>engine.SaveCharacterSettings()</code>
+        and then sets <code>engine.showConfigWindow = false</code>, closing the config
+        window.</li>
+        <li><strong>Load</strong> &mdash; Calls <code>engine.LoadCharacterSettings()</code>
+        to reload settings from disk, discarding any unsaved changes. This also re-checks
+        whether MQMyChat is loaded.</li>
+    </ul>
+
+    <h3>Color Section</h3>
+
+    <p>The Colors section first renders a <code>ColorEdit4</code> for the background color
+    (spam overlay background with alpha). Then it iterates all entries in
+    <code>settings.damageColors</code> and renders one <code>ColorEdit4</code> per entry,
+    using <code>ImGuiColorEditFlags_NoInputs</code> to show only the colored swatch,
+    keeping the section compact.</p>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="spawn-tracking.html">Spawn ID Tracking</a> |
+        <strong>Next:</strong> <a href="commands-tlo.html">Commands &amp; TLO</a>
+    </div>
+</main>
+
+</body>
+</html>

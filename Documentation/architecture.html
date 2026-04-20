@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html" class="active">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>Architecture</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>High-Level Design</h2>
+
+    <p>MQMyDPS separates responsibilities into four distinct layers: an engine that owns all
+    state, a parser that only understands text patterns, a renderer that only reads state, and
+    a TLO layer that only exposes state. Nothing in the renderer or TLO layer ever writes to
+    the engine &mdash; they are read-only consumers. This separation makes the code easier to
+    reason about: if the UI looks wrong, the bug is in the renderer; if a damage number is
+    wrong, the bug is in the engine or parser.</p>
+
+    <p><code>MyDPSEngine</code> is the central class that owns all mutable state. Every game
+    frame, MacroQuest calls <code>OnIncomingChat</code> with combat text. The engine feeds
+    that line to <code>MyDPSParser</code>, which returns a structured <code>DamageRecord</code>
+    if the line matched any known pattern. The engine then resolves which specific mob was hit
+    (by spawn ID), accumulates the damage or heal into per-spawn or per-player entries, and
+    manages battle transitions. Separately, every 250ms, <code>OnPulse</code> monitors the
+    casting state machine and checks whether combat has ended. Finally, every render frame,
+    <code>OnUpdateImGui</code> asks <code>MyDPSRenderer</code> to draw the current state.</p>
+
+    <div class="diagram">
+OnIncomingChat(line)
+    |
+    v
+MyDPSEngine::ProcessChat()
+    |-- Update pet name from pLocalPlayer->PetID (pets can be resummoned mid-session)
+    |-- Apply visibility filters (showMyMisses, showHitMe, showDS, etc.)
+    |
+    v
+MyDPSParser::Parse(line)  -->  std::optional&lt;DamageRecord&gt;
+    |
+    v
+MyDPSEngine::RecordDamage()
+    |-- If damage-out (not miss, not incoming, not heal): enter/continue battle
+    |-- ResolveSpawnID()  -->  pTarget / WhoFollowing / DoT registry / XTarget / synthetic
+    |-- Update sessionDamage, battleDamage counters
+    |-- Update battlePetDamage if PetMelee or PetNonMelee
+    |-- Update battleNonMeleeDmg if NonMelee
+    |-- Update currentTargets[spawnID]  -->  TargetDamageData
+    |
+    |-- If DirectHeal and inCombat:
+    |       battleDirectHeals += damage
+    |       currentHealTargets[targetName]  -->  HealTargetData
+    |
+    |-- If CritHeal and inCombat:
+    |       battleCritHeals += damage
+    |
+    |-- Append to recentRecords deque
+    |
+    v
+OnPulse (throttled to 250ms)
+    |-- TrackDoTCasting()   -->  monitor CastingData.SpellID transitions
+    |-- UpdateCombatState() -->  GetCombatState() == eCombatState_Combat
+    |-- CleanExpiredRecords()
+    |
+    v
+OnUpdateImGui
+    |-- RenderMainWindow()    -->  tabs: Current Battle, History, Targets, Healing, Graphs
+    |-- RenderConfigWindow()  -->  separate data-driven settings window
+    |-- RenderCombatSpam()    -->  floating overlay (newest-at-top, click-through option)
+    |
+    v
+FinalizeBattle() (when battle ends after delay)
+    |-- Creates BattleData with currentTargets (std::move) and currentHealTargets (std::move)
+    |-- Sends colored summary to MQMyChat if loaded
+    |-- Pushes to battleHistory
+    </div>
+
+    <h2>Why This Data Flow Order Matters</h2>
+
+    <p>The order of operations in <code>RecordDamage</code> is deliberate. The spawn ID is
+    resolved <em>before</em> the damage is accumulated, because the resolution reads live game
+    state (your current target, your pet's target) that could theoretically change by the next
+    frame. Resolving immediately when the chat line arrives gives the most accurate result.</p>
+
+    <p>Heal events are tracked separately from damage. When a <code>DirectHeal</code> record
+    arrives, it is recorded into <code>currentHealTargets</code> keyed by the player name from
+    the chat line &mdash; not by spawn ID. Player names are stable and unique, so no spawn
+    resolution is needed. The heal is only counted if <code>inCombat</code> is true; heals
+    cast outside of an active battle do not contribute to battle statistics.</p>
+
+    <p>The <code>recentRecords</code> deque is appended to regardless of event type &mdash;
+    it stores all events including incoming damage, misses, and heals, because the combat spam
+    overlay shows everything the user configured to see. The battle damage counters, however,
+    only update on outgoing damage events that land (not misses, not incoming).</p>
+
+    <h2>File Dependencies</h2>
+
+    <div class="diagram">
+MyDPSData.h  (structs only, no dependencies beyond mq/Plugin.h for ImVec4)
+    ^
+    |
+MQMyDPS.h  (includes MyDPSData.h, declares MyDPSEngine)
+    ^
+    |--- MyDPSParser.h  (includes MyDPSData.h)
+    |--- MyDPSRenderer.h  (forward declares MyDPSEngine)
+    |--- MyDPSTLO.h  (includes mq/Plugin.h)
+    |
+MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementation)
+    </div>
+
+    <p><code>MyDPSData.h</code> is intentionally kept dependency-free (aside from
+    <code>mq/Plugin.h</code> for <code>ImVec4</code>). It only uses standard library types.
+    This means any file can include it without pulling in all of MacroQuest's headers, which
+    speeds up compilation and prevents accidental coupling.</p>
+
+    <h2>Key Classes</h2>
+
+    <h3>MyDPSEngine</h3>
+
+    <p>Central engine class. Owns all mutable state. All public fields are intentionally
+    public because <code>MyDPSRenderer</code> and <code>MyDPSTLO</code> need read access
+    to them without the overhead of getter functions for every field.</p>
+
+    <ul>
+        <li><code>currentTargets</code> &mdash; <code>unordered_map&lt;int, TargetDamageData&gt;</code>
+        keyed by spawn ID. Positive IDs are real spawn IDs from game state, negative IDs are
+        synthetic fallbacks for unresolved spawns. Cleared and re-populated at the start of
+        each new battle.</li>
+        <li><code>currentHealTargets</code> &mdash; <code>unordered_map&lt;string, HealTargetData&gt;</code>
+        keyed by player name. Tracks who you healed during the current battle. Cleared at
+        battle start and moved into <code>BattleData</code> at finalization.</li>
+        <li><code>battleHistory</code> &mdash; <code>vector&lt;BattleData&gt;</code> of
+        completed battles, each owning its own <code>targets</code> and
+        <code>healTargets</code> maps moved from the live maps at battle end.</li>
+        <li><code>recentRecords</code> &mdash; <code>deque&lt;DamageRecord&gt;</code> for
+        the combat spam overlay. Front-popped when records age out past
+        <code>displayTime</code> seconds.</li>
+        <li><code>activeDoTs</code> &mdash; <code>vector&lt;ActiveDoT&gt;</code> tracking
+        which DoT spells are active on which spawn IDs. Entries expire after 5 minutes and
+        are removed when a spawn despawns or the player zones.</li>
+        <li><code>battleDirectHeals</code> / <code>battleCritHeals</code> &mdash; Battle-level
+        counters for direct heal damage and critical heal bonus amounts, accumulated during
+        combat and snapshotted into <code>BattleData</code> at finalization.</li>
+        <li><code>battlePetDamage</code> / <code>battleNonMeleeDmg</code> &mdash; Battle-level
+        counters for pet damage (PetMelee + PetNonMelee combined) and non-melee spell damage
+        (NonMelee type). These feed into <code>BattleData</code> at finalization.</li>
+        <li>Session and battle accumulators (damage, hits, crits, DoTs).</li>
+        <li><code>m_myChatLoaded</code> &mdash; cached result of
+        <code>IsPluginLoaded("MQMyChat")</code>, set once during
+        <code>LoadCharacterSettings()</code>. Guards all calls to
+        <code>SendToMyChat()</code>.</li>
+    </ul>
+
+    <h3>MyDPSParser</h3>
+
+    <p>Stateless parser except for the character name and pet name it needs to recognize
+    "your" events. Receives a chat line, tries 14 <code>TryParse*</code> methods in
+    frequency order (most common types first), returns
+    <code>std::optional&lt;DamageRecord&gt;</code>. Uses <code>string_view::find()</code>
+    for all pattern matching &mdash; no regex (MSVC's regex is slow), no Blech (the
+    MQ2 event system), because combat messages have fixed formats that simple string
+    scanning handles perfectly.</p>
+
+    <p>Pet methods are skipped entirely if the pet name is empty (no pet summoned), saving
+    the cost of those checks on most lines. The 14th method, <code>TryParseDirectHeal</code>,
+    handles two EQ heal message formats: the basic
+    <code>"You have healed X for N points."</code> and the spell-name variant
+    <code>"You have healed X for N hit points with your Spell Name."</code></p>
+
+    <h3>MyDPSRenderer</h3>
+
+    <p>Read-only view of engine state. Draws three windows: main report window (5 tabs),
+    config window, and combat spam overlay. Uses ImPlot for graphs.</p>
+
+    <p>A key pattern used throughout the renderer is the color lookup lambda:</p>
+
+    <pre><code>auto C = [&amp;](const char* key) -&gt; ImVec4 {
+    auto it = engine.settings.damageColors.find(key);
+    return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+};</code></pre>
+
+    <p>This lambda is defined locally inside each rendering function that needs colors. It
+    avoids repeating the map lookup boilerplate on every colored text call. If a key is
+    not found, it falls back to white so nothing crashes.</p>
+
+    <p>The config window uses a data-driven layout: arrays of <code>BoolEntry</code>,
+    <code>IntEntry</code>, and <code>FloatEntry</code> structs are iterated to render
+    checkboxes and sliders without repeating the same layout code for every setting. The
+    column count in each config section is computed dynamically from the window width.</p>
+
+    <p>Font scaling is applied via <code>ImGui::PushFont(nullptr, FontSizeBase * scale)</code>
+    on both the main window and config window, so the entire UI scales uniformly.</p>
+
+    <h3>MyDPSType / MyDPSTargetType</h3>
+
+    <p>MQ2Type subclasses that expose engine data as TLO members. <code>MyDPSType</code>
+    is the top-level <code>${MyDPS}</code> object. <code>MyDPSTargetType</code> represents
+    individual target entries accessed via <code>${MyDPS.Target[id]}</code>. The target
+    type stores only the spawn ID in <code>VarPtr.Int</code> and looks up the live
+    <code>TargetDamageData</code> from <code>currentTargets</code> on every member access,
+    so it always reflects current data.</p>
+
+    <h2>Key Data Structures</h2>
+
+    <h3>DamageRecord</h3>
+
+    <p>A single parsed event (damage or heal). This is the unit of information that flows
+    from the parser to the engine. Fields:</p>
+
+    <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td><code>type</code></td><td>DamageType</td><td>Category of event (see enum below)</td></tr>
+            <tr><td><code>attackVerb</code></td><td>string</td><td>The verb from the chat line: "crush", "slash", "non-melee", "dot", "heal", etc.</td></tr>
+            <tr><td><code>targetName</code></td><td>string</td><td>Name of the target from chat text (no spawn ID yet). For heals, this is the player name healed.</td></tr>
+            <tr><td><code>targetSpawnID</code></td><td>int</td><td>Filled by ResolveSpawnID() after parsing. 0 until resolved. Not used for heal events.</td></tr>
+            <tr><td><code>damage</code></td><td>int64_t</td><td>Damage or heal amount. 0 for misses.</td></tr>
+            <tr><td><code>isMiss</code></td><td>bool</td><td>True for Miss and MissedMe types</td></tr>
+            <tr><td><code>spellName</code></td><td>string</td><td>Spell name. Used for DoT attribution matching and for the heal spell name in the "hit points with your" format.</td></tr>
+            <tr><td><code>timestamp</code></td><td>steady_clock::time_point</td><td>Set at parse time, used for spam overlay aging</td></tr>
+            <tr><td><code>sequence</code></td><td>int</td><td>Monotonically increasing counter for ordering events</td></tr>
+        </tbody>
+    </table>
+
+    <h3>HealTargetData</h3>
+
+    <p>Accumulated healing for one player across the current battle. Keyed by player name
+    in the <code>currentHealTargets</code> map (and in <code>BattleData::healTargets</code>
+    after finalization). Heals are <em>per player</em>, not per NPC target &mdash; there is
+    no spawn ID for heal targets because you are healing players, not mobs.</p>
+
+    <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td><code>name</code></td><td>string</td><td>Player name from the chat line</td></tr>
+            <tr><td><code>directHeals</code></td><td>int64_t</td><td>Sum of all DirectHeal amounts</td></tr>
+            <tr><td><code>critHeals</code></td><td>int64_t</td><td>Sum of CritHeal bonus amounts</td></tr>
+            <tr><td><code>healCount</code></td><td>int</td><td>Number of direct heal events</td></tr>
+        </tbody>
+    </table>
+
+    <p><code>GetTotalHeals()</code> returns <code>directHeals + critHeals</code>. This is
+    the value used for sorting in the Healing tab and for the pie chart.</p>
+
+    <h3>TargetDamageData</h3>
+
+    <p>Accumulated damage for one spawn across all hits during the current battle.
+    Keyed by spawn ID in the <code>currentTargets</code> map. Provides computed
+    helper methods (<code>GetDPS()</code>, <code>GetAvgDamage()</code>,
+    <code>GetDurationSeconds()</code>) that calculate from the raw fields on demand.</p>
+
+    <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td><code>spawnID</code></td><td>int</td><td>Spawn ID (positive = real, negative = synthetic fallback)</td></tr>
+            <tr><td><code>name</code></td><td>string</td><td>Display name from first hit</td></tr>
+            <tr><td><code>totalDamage</code></td><td>int64_t</td><td>Sum of all damage types</td></tr>
+            <tr><td><code>critDamage</code></td><td>int64_t</td><td>Sum of Crit-type events</td></tr>
+            <tr><td><code>dotDamage</code></td><td>int64_t</td><td>Sum of DoT-type events</td></tr>
+            <tr><td><code>dsDamage</code></td><td>int64_t</td><td>Sum of DamageShield-type events</td></tr>
+            <tr><td><code>petDamage</code></td><td>int64_t</td><td>Sum of PetMelee + PetNonMelee events</td></tr>
+            <tr><td><code>nonMeleeDamage</code></td><td>int64_t</td><td>Sum of NonMelee (direct damage spells) events</td></tr>
+            <tr><td><code>hitCount</code></td><td>int</td><td>Number of landing hits (not misses)</td></tr>
+            <tr><td><code>missCount</code></td><td>int</td><td>Number of misses</td></tr>
+            <tr><td><code>firstHit</code></td><td>time_point</td><td>Timestamp of first hit, for duration calculation</td></tr>
+            <tr><td><code>lastHit</code></td><td>time_point</td><td>Timestamp of most recent hit</td></tr>
+        </tbody>
+    </table>
+
+    <h3>BattleData</h3>
+
+    <p>A completed battle snapshot created by <code>FinalizeBattle()</code>. Owns both
+    <code>unordered_map&lt;int, TargetDamageData&gt;</code> (damage targets) and
+    <code>unordered_map&lt;string, HealTargetData&gt;</code> (heal targets), both
+    moved from the live maps at battle end via <code>std::move</code> (zero-cost
+    transfer of ownership &mdash; no copying). Stores pre-computed DPS, duration, and
+    averages so the history table can display them without recalculating.</p>
+
+    <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td><code>battleNumber</code></td><td>int</td><td>Incrementing battle counter</td></tr>
+            <tr><td><code>totalDamage</code></td><td>int64_t</td><td>Total battle damage</td></tr>
+            <tr><td><code>critDamage</code></td><td>int64_t</td><td>Crit sub-total</td></tr>
+            <tr><td><code>dotDamage</code></td><td>int64_t</td><td>DoT sub-total</td></tr>
+            <tr><td><code>petDamage</code></td><td>int64_t</td><td>Pet damage sub-total (PetMelee + PetNonMelee)</td></tr>
+            <tr><td><code>nonMeleeDamage</code></td><td>int64_t</td><td>Non-melee spell damage sub-total</td></tr>
+            <tr><td><code>directHeals</code></td><td>int64_t</td><td>Total direct heals cast this battle</td></tr>
+            <tr><td><code>critHeals</code></td><td>int64_t</td><td>Total crit heal bonus this battle</td></tr>
+            <tr><td><code>hitCount</code></td><td>int</td><td>Total hits this battle</td></tr>
+            <tr><td><code>durationSeconds</code></td><td>float</td><td>Battle duration in seconds</td></tr>
+            <tr><td><code>dps</code></td><td>float</td><td>Pre-computed DPS</td></tr>
+            <tr><td><code>avgDamage</code></td><td>float</td><td>Pre-computed average damage per hit</td></tr>
+            <tr><td><code>targets</code></td><td>unordered_map&lt;int, TargetDamageData&gt;</td><td>Per-spawn damage breakdown</td></tr>
+            <tr><td><code>healTargets</code></td><td>unordered_map&lt;string, HealTargetData&gt;</td><td>Per-player heal breakdown</td></tr>
+        </tbody>
+    </table>
+
+    <h3>ActiveDoT</h3>
+
+    <p>Tracks a DoT spell cast so that later tick messages can be attributed back to the
+    correct spawn. Fields: <code>targetSpawnID</code> (resolved at cast time),
+    <code>targetName</code> (for matching incoming tick text), <code>spellName</code>
+    (for matching specific spells), <code>castTime</code> (for 5-minute expiry).</p>
+
+    <h3>MyDPSSettings</h3>
+
+    <p>All user-configurable options. Notable fields:</p>
+    <ul>
+        <li><code>spamClickThrough</code> (default true): causes the spam overlay to use
+        <code>ImGuiWindowFlags_NoInputs</code>, passing clicks through to the game below.</li>
+        <li><code>damageColors</code>: an <code>unordered_map&lt;string, ImVec4&gt;</code>
+        mapping color keys to RGBA values. Includes keys for damage types, stat display
+        colors, and entity name colors. See the full color key table below.</li>
+    </ul>
+
+    <h2>DamageType Enum and Color Keys</h2>
+
+    <p>The <code>DamageType</code> enum classifies every parsed event. The color key is
+    the string used to look up the display color in <code>settings.damageColors</code>
+    for the combat spam overlay and all other colored text in the UI. Melee events use
+    the attack verb directly (so "crush" and "slash" can be different colors), while other
+    types use a fixed key.</p>
+
+    <table>
+        <thead><tr><th>Type</th><th>Color Key</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td><code>Melee</code></td><td>attack verb (e.g. "crush")</td><td>Your melee hits. Attack verb varies by weapon type and class abilities.</td></tr>
+            <tr><td><code>NonMelee</code></td><td>"non-melee"</td><td>Your direct damage spells. Contributes to nonMeleeDamage sub-total.</td></tr>
+            <tr><td><code>DoT</code></td><td>"dot"</td><td>Your damage-over-time ticks. Attributed via cast registry.</td></tr>
+            <tr><td><code>DamageShield</code></td><td>"dShield"</td><td>Your damage shield procs when mobs hit you.</td></tr>
+            <tr><td><code>Crit</code></td><td>"crit"</td><td>Critical hit bonus messages (both melee and spell crits).</td></tr>
+            <tr><td><code>CritHeal</code></td><td>"critHeals"</td><td>Critical heals you cast ("You perform an exceptional heal!").</td></tr>
+            <tr><td><code>Miss</code></td><td>"miss"</td><td>Your melee misses.</td></tr>
+            <tr><td><code>MissedMe</code></td><td>"missed-me"</td><td>Mob misses against you.</td></tr>
+            <tr><td><code>HitBy</code></td><td>"hit-by"</td><td>Melee damage taken from a mob.</td></tr>
+            <tr><td><code>HitByNonMelee</code></td><td>"hit-by-non-melee"</td><td>Spell damage taken from a mob.</td></tr>
+            <tr><td><code>PetMelee</code></td><td>"hit"</td><td>Pet melee hits. Contributes to petDamage sub-total.</td></tr>
+            <tr><td><code>PetNonMelee</code></td><td>"non-melee"</td><td>Pet spell damage. Contributes to petDamage sub-total.</td></tr>
+            <tr><td><code>DirectHeal</code></td><td>"heal"</td><td>A direct heal you cast. Tracked per player healed.</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Stat Display Color Keys</h3>
+
+    <p>Beyond event type colors, the settings color map contains keys used for coloring
+    stat values and entity names in the Current Battle tab, History tab, and menu bar.
+    These are not used for the spam overlay; they are purely for the main window tables.</p>
+
+    <table>
+        <thead><tr><th>Key</th><th>Default Color</th><th>Used for</th></tr></thead>
+        <tbody>
+            <tr><td><code>"dps"</code></td><td>Gold (1.0, 0.9, 0.4)</td><td>DPS values in Current Battle stats and menu bar counter</td></tr>
+            <tr><td><code>"duration"</code></td><td>Light gray (0.8, 0.8, 0.8)</td><td>Duration values</td></tr>
+            <tr><td><code>"avg"</code></td><td>Near-white (0.9, 0.9, 0.9)</td><td>Average damage values</td></tr>
+            <tr><td><code>"total"</code></td><td>White (1.0, 1.0, 1.0)</td><td>Total damage values and hit counts</td></tr>
+            <tr><td><code>"pet"</code></td><td>Soft purple (0.8, 0.6, 1.0)</td><td>Pet damage sub-total values</td></tr>
+            <tr><td><code>"heal"</code></td><td>Green (0.0, 1.0, 0.5)</td><td>Heal amounts</td></tr>
+            <tr><td><code>"dmg-target"</code></td><td>Reddish pink (1.0, 0.6, 0.6)</td><td>NPC target names in battle and history target rows</td></tr>
+            <tr><td><code>"heal-target"</code></td><td>Light blue (0.6, 0.8, 1.0)</td><td>Player names in heal tables and history heal rows</td></tr>
+        </tbody>
+    </table>
+
+    <div class="tip">
+        <strong>Why do PetMelee and PetNonMelee share color keys with non-pet types?</strong>
+        The color key lookup is purely for the combat spam overlay display. Pet hits use "hit"
+        (plain white) and pet spells use "non-melee" (cyan) because those are visually
+        appropriate defaults. The <code>DamageType</code> enum still distinguishes them for
+        accounting purposes &mdash; only the display color is shared.
+    </div>
+
+    <h2>Complete Data Flow: Healing Example</h2>
+
+    <p>To make the heal tracking flow concrete, here is what happens when you cast
+    Celestial Remedy on your tank and it heals for 2500:</p>
+
+    <ol>
+        <li>EQ sends chat: <code>"You have healed Grimmier for 2500 hit points with your
+        Celestial Remedy."</code></li>
+        <li><code>OnIncomingChat</code> fires. <code>ProcessChat</code> calls
+        <code>m_parser->Parse()</code>.</li>
+        <li><code>TryParseDirectHeal</code> matches because the line starts with
+        "You have healed ". It extracts <code>targetName="Grimmier"</code>,
+        <code>damage=2500</code>, and <code>spellName="Celestial Remedy"</code>.
+        Returns a <code>DamageRecord</code> with <code>type=DirectHeal</code>,
+        <code>attackVerb="heal"</code>.</li>
+        <li>In <code>RecordDamage</code>: the record is not flagged as <code>isDamageOut</code>
+        (heals are excluded from that check), so it does not start or continue a battle by
+        itself. If <code>inCombat</code> is true:
+            <ul>
+                <li><code>battleDirectHeals += 2500</code></li>
+                <li><code>currentHealTargets["Grimmier"]</code> is found or created,
+                <code>directHeals += 2500</code>, <code>healCount++</code></li>
+            </ul>
+        </li>
+        <li>The record is appended to <code>recentRecords</code> and shown in the combat
+        spam overlay with the "heal" color key (green).</li>
+        <li>At battle end, <code>FinalizeBattle()</code> moves
+        <code>currentHealTargets</code> into <code>battle.healTargets</code>. The
+        Healing tab aggregates this across battles.</li>
+    </ol>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="index.html">Home</a> |
+        <strong>Next:</strong> <a href="lifecycle.html">Plugin Lifecycle</a>
+    </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Parsing - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html" class="active">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>Chat Parsing</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>The Problem: All Data Comes From Text</h2>
+
+    <p>EverQuest's game client sends every combat and healing event as a formatted chat
+    message. There is no separate "damage event API" that gives you a structured object
+    with damage amount, target, and type. Instead you get a line like:</p>
+
+    <pre><code>You crush a skeleton for 150 points of damage.</code></pre>
+
+    <p>The parser's job is to read that text and produce a <code>DamageRecord</code> struct
+    with <code>type=Melee</code>, <code>attackVerb="crush"</code>,
+    <code>targetName="a skeleton"</code>, <code>damage=150</code>. Every piece of information
+    must be extracted from the text because that is the only source available.</p>
+
+    <h2>Why string_view::find() Instead of Regex?</h2>
+
+    <p>EQ combat messages have completely fixed formats. "YOU crush X for N points of damage"
+    is always exactly that pattern. There are no optional groups, no alternations in the
+    basic case, no ambiguous structure. In this situation, simple string scanning with
+    <code>std::string_view::find()</code> is faster than regex for two reasons:</p>
+
+    <ul>
+        <li>MSVC's <code>std::regex</code> implementation is known to be significantly
+        slower than manual string operations for short fixed patterns.</li>
+        <li><code>string_view</code> is a non-owning view of the original chat line buffer.
+        No copies are made when scanning for substrings.</li>
+    </ul>
+
+    <p>The MQ2 Blech event system (used by MQ2 macros for <code>#event</code> lines) could
+    also work, but it involves registering pattern callbacks and has overhead that is not
+    worth it when the parser is called 60 times per second on every incoming chat line.</p>
+
+    <h2>Parse Flow</h2>
+
+    <p><code>Parse(line, color)</code> wraps the raw C string in a <code>string_view</code>
+    (zero-copy), then tries each of the 14 <code>TryParse*</code> methods in order. The
+    first method that returns <code>true</code> wins, and the populated <code>DamageRecord</code>
+    is returned as an <code>std::optional</code>. If no method matches, <code>nullopt</code>
+    is returned and the caller (<code>ProcessChat</code>) ignores the line.</p>
+
+    <p>The methods are ordered by expected frequency in normal play: melee hits are by far
+    the most common message, followed by non-melee, then crits, DoTs, misses, and so on.
+    This means on a typical melee hit, the parser returns after the very first check.</p>
+
+    <p>Pet methods are special: they are only attempted if the pet name is non-empty. If you
+    have no pet, the parser skips both pet methods entirely, saving two string comparisons
+    on every non-matching line.</p>
+
+    <table>
+        <thead><tr><th>Order</th><th>Method</th><th>Anchor text checked</th><th>Example line</th><th>DamageType</th></tr></thead>
+        <tbody>
+            <tr>
+                <td>1</td><td>TryParseMelee</td>
+                <td>Starts with "You ", contains " for ", contains " points of damage"</td>
+                <td><code>You crush a skeleton for 150 points of damage.</code></td>
+                <td>Melee</td>
+            </tr>
+            <tr>
+                <td>2</td><td>TryParseNonMelee</td>
+                <td>Starts with "[CharName] hit ", contains " for ", contains " points of non-melee damage"</td>
+                <td><code>Grimmier hit a skeleton for 500 points of non-melee damage.</code></td>
+                <td>NonMelee</td>
+            </tr>
+            <tr>
+                <td>3</td><td>TryParseCrit</td>
+                <td>Contains "You score a critical hit!" or "You deliver a critical blast!"</td>
+                <td><code>You score a critical hit! (1200)</code></td>
+                <td>Crit</td>
+            </tr>
+            <tr>
+                <td>4</td><td>TryParseDeadlyStrike</td>
+                <td>Contains "[CharName] scores a Deadly Strike!"</td>
+                <td><code>Grimmier scores a Deadly Strike! (2500)</code></td>
+                <td>Crit</td>
+            </tr>
+            <tr>
+                <td>5</td><td>TryParseDoT</td>
+                <td>Contains " has taken ", contains " damage from your "</td>
+                <td><code>a skeleton has taken 300 damage from your Envenomed Bolt.</code></td>
+                <td>DoT</td>
+            </tr>
+            <tr>
+                <td>6</td><td>TryParseMiss</td>
+                <td>Starts with "You try to ", contains ", but miss!"</td>
+                <td><code>You try to crush a skeleton, but miss!</code></td>
+                <td>Miss</td>
+            </tr>
+            <tr>
+                <td>7</td><td>TryParseDamageShield</td>
+                <td>Contains " was hit by non-melee for ", contains " points of damage"</td>
+                <td><code>a skeleton was hit by non-melee for 25 points of damage.</code></td>
+                <td>DamageShield</td>
+            </tr>
+            <tr>
+                <td>8</td><td>TryParseHitBy</td>
+                <td>Contains " YOU for ", contains " points of damage", does NOT contain " non-melee "</td>
+                <td><code>A skeleton hits YOU for 100 points of damage.</code></td>
+                <td>HitBy</td>
+            </tr>
+            <tr>
+                <td>9</td><td>TryParseMissedMe</td>
+                <td>Contains " tries to ", contains " YOU, but misses!"</td>
+                <td><code>A skeleton tries to hit YOU, but misses!</code></td>
+                <td>MissedMe</td>
+            </tr>
+            <tr>
+                <td>10</td><td>TryParseCritHeal</td>
+                <td>Contains "You perform an exceptional heal!"</td>
+                <td><code>You perform an exceptional heal! (800)</code></td>
+                <td>CritHeal</td>
+            </tr>
+            <tr>
+                <td>11</td><td>TryParseDirectHeal</td>
+                <td>Starts with "You have healed ", contains " for ", then either " points." or " hit points with your [Spell]."</td>
+                <td><code>You have healed Grimmier for 2500 points.</code><br>
+                <code>You have healed Grimmier for 2500 hit points with your Celestial Remedy.</code></td>
+                <td>DirectHeal</td>
+            </tr>
+            <tr>
+                <td>12</td><td>TryParseHitByNonMelee</td>
+                <td>Contains " points of non-melee damage", contains " YOU for ", contains " hit "</td>
+                <td><code>A skeleton hit YOU for 200 points of non-melee damage.</code></td>
+                <td>HitByNonMelee</td>
+            </tr>
+            <tr>
+                <td>13</td><td>TryParsePetMelee</td>
+                <td>Starts with "[PetName] ", contains " for ", contains " points of damage"</td>
+                <td><code>Gobber hits a skeleton for 75 points of damage.</code></td>
+                <td>PetMelee</td>
+            </tr>
+            <tr>
+                <td>14</td><td>TryParsePetNonMelee</td>
+                <td>Starts with "[PetName] hit ", contains " for ", contains " points of non-melee damage"</td>
+                <td><code>Gobber hit a skeleton for 120 points of non-melee damage.</code></td>
+                <td>PetNonMelee</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        <strong>Parse order note:</strong> <code>TryParseDirectHeal</code> is tried at
+        position 11, after most damage types and the crit heal check. This ordering is
+        intentional: direct heal messages start with "You have healed", which does not
+        overlap with any damage pattern, so placing it later costs only one failed check
+        on all non-heal lines.
+    </div>
+
+    <h2>How Each Method Works Internally</h2>
+
+    <h3>TryParseMelee</h3>
+    <p>Checks that the line starts with "You ". Finds " for " and " points of damage" to
+    locate the damage number. Everything between "You " and " for " is the verb-and-target
+    substring, which is split at the first space to separate verb from target name.</p>
+
+    <pre><code>"You crush a skeleton for 150 points of damage."
+ |   |verb||--target--|     |damage|
+ "You " prefix confirmed
+ verb = "crush"
+ targetName = "a skeleton"
+ damage = 150</code></pre>
+
+    <h3>TryParseNonMelee</h3>
+    <p>Requires the character name to be set (via <code>SetCharName</code>). Checks that
+    the line starts with "[CharName] hit ". The target name sits between the prefix and
+    " for ". The damage is after " for " and before " points of non-melee damage".</p>
+
+    <p>Why does this need the character name? Because EQ writes it as "Grimmier hit X for
+    N" rather than "You hit X for N", using your actual name. Without knowing the name,
+    you cannot identify which lines are yours versus another player standing nearby.</p>
+
+    <h3>TryParseCrit and TryParseDeadlyStrike</h3>
+    <p>Crit messages in EQ do not include the target name in the standard format. They just
+    say "You score a critical hit! (1200)". The damage is extracted from inside the
+    parentheses using <code>rfind('(')</code> and <code>rfind(')')</code>. The target name
+    is left empty by the parser; it is filled in later by <code>RecordDamage</code> by
+    reading <code>pTarget->DisplayedName</code>.</p>
+
+    <h3>TryParseDoT</h3>
+    <p>Extracts three pieces of information: target name (before " has taken "), damage
+    (between " has taken " and " damage from your "), and spell name (after " damage from
+    your ", with trailing period stripped). The spell name is critical for the DoT registry
+    &mdash; it is how the engine matches a tick back to the specific cast that caused it.</p>
+
+    <h3>TryParseDamageShield</h3>
+    <p>Damage shield messages say "[mob] was hit by non-melee for N points of damage." The
+    target name is everything before " was hit by non-melee for ". Note that the parser does
+    not need your character name here because the format does not include it.</p>
+
+    <h3>TryParseCritHeal</h3>
+    <p>Matches the "You perform an exceptional heal!" line and extracts the bonus amount
+    from inside parentheses using <code>rfind</code>. This produces a
+    <code>DamageType::CritHeal</code> record. Note that crit heals do <em>not</em> carry
+    a target name &mdash; EQ does not include one in the message. The engine tracks
+    <code>battleCritHeals</code> as a battle-level total, not per heal target.</p>
+
+    <h3>TryParseDirectHeal</h3>
+
+    <p>This is the newest parser method and the only one that handles two distinct EQ
+    message formats. Both are produced when your healing spells land:</p>
+
+    <p><strong>Format A &mdash; basic:</strong></p>
+    <pre><code>You have healed Grimmier for 2500 points.</code></pre>
+
+    <p><strong>Format B &mdash; with spell name:</strong></p>
+    <pre><code>You have healed Grimmier for 2500 hit points with your Celestial Remedy.</code></pre>
+
+    <p>The method works as follows:</p>
+    <ol>
+        <li>Confirms the line starts with "You have healed ".</li>
+        <li>Finds " for " to locate the start of the number and end of the player name.</li>
+        <li>Extracts the target name from between the prefix and " for ".</li>
+        <li>Checks for " hit points" (Format B marker) first. If found, extracts the
+        number between " for " and " hit points", then looks for " with your " after
+        the number to capture the spell name (stripping the trailing period).</li>
+        <li>If " hit points" is not found, checks for " points." (Format A) and extracts
+        the number between " for " and " points.".</li>
+        <li>If neither marker is found, returns false (not a recognized heal line).</li>
+    </ol>
+
+    <p>The resulting record has <code>type=DirectHeal</code>, <code>attackVerb="heal"</code>,
+    <code>targetName</code> set to the player name, <code>damage</code> set to the heal
+    amount, and optionally <code>spellName</code> set if Format B was matched. The spell
+    name is stored in <code>DamageRecord::spellName</code> for future use but is not
+    currently used for attribution (heals are keyed by player name, not spell name).</p>
+
+    <h3>TryParsePetMelee and TryParsePetNonMelee</h3>
+    <p>Both require the pet name to be set and non-empty. The pet name is set in
+    <code>ProcessChat</code> on every call by checking <code>pLocalPlayer->PetID</code> and
+    looking up the pet's <code>DisplayedName</code>. This ensures that if you resummon a
+    pet with a different name, the parser adapts immediately on the next chat line.</p>
+
+    <p>The attack verb for pet melee is stored as "[PetName] [verb]" (e.g. "Gobber hits").
+    This allows the combat spam overlay to show pet hits distinctly from your own hits,
+    even though they share the "hit" color key.</p>
+
+    <h2>Dynamic Names</h2>
+
+    <p>The parser uses two dynamic names set at runtime:</p>
+
+    <ul>
+        <li><code>SetCharName(name)</code> &mdash; your character name, set once when
+        settings load in <code>SetGameState(GAMESTATE_INGAME)</code>. Used by
+        <code>TryParseNonMelee</code> and <code>TryParseDeadlyStrike</code>, which include
+        your actual name rather than "You".</li>
+        <li><code>SetPetName(name)</code> &mdash; your pet's current display name. Updated
+        on <em>every call to ProcessChat</em>, not just on load. Pets can be killed and
+        resummoned within a single play session, potentially with different names, and this
+        ensures the parser always has the current name.</li>
+    </ul>
+
+    <h2>Number Extraction</h2>
+
+    <p><code>ExtractNumber(text, start, end)</code> scans a substring for a number using
+    <code>std::from_chars</code>, which is the fastest standard-library integer parser
+    available. It reads directly from the string's memory without any allocations. The
+    function returns <code>int64_t</code> so it can handle arbitrarily large damage values
+    (important for high-end content or parser testing).</p>
+
+    <p>The function also has boundary validation: if <code>start >= end</code> or
+    <code>end > text.size()</code>, it returns 0 safely rather than causing a buffer overread.
+    This matters because the calling methods compute these positions from <code>find()</code>
+    results, and a malformed or unexpected line could theoretically produce out-of-bounds
+    positions.</p>
+
+    <h2>Filtering in ProcessChat</h2>
+
+    <p>After parsing succeeds, <code>ProcessChat()</code> applies the user's visibility
+    settings before calling <code>RecordDamage()</code>. This filtering happens in the engine,
+    not the parser, because the parser's job is only to recognize patterns &mdash; decisions
+    about what to track are the engine's responsibility.</p>
+
+    <ul>
+        <li>Miss records dropped if <code>showMyMisses</code> is false</li>
+        <li>MissedMe dropped if <code>showMissMe</code> is false</li>
+        <li>HitBy and HitByNonMelee dropped if <code>showHitMe</code> is false</li>
+        <li>CritHeal dropped if <code>showCritHeals</code> is false</li>
+        <li>DamageShield dropped if <code>showDS</code> is false</li>
+        <li>Pet damage is only parsed at all if <code>addPet</code> is true; if false,
+        the pet name is cleared to an empty string, which causes <code>TryParsePetMelee</code>
+        and <code>TryParsePetNonMelee</code> to return false immediately</li>
+        <li>DirectHeal events are <em>not</em> filtered by any setting &mdash; direct heals
+        are always recorded when they arrive. They are excluded from damage counters
+        automatically by the <code>isDamageOut</code> check in <code>RecordDamage</code>.</li>
+    </ul>
+
+    <div class="tip">
+        <strong>Why filter in the engine rather than the parser?</strong> The parser is meant
+        to be a pure text-to-structure converter. It has no knowledge of user preferences.
+        Keeping settings out of the parser means you could reuse the same parser in a
+        different context (a test harness, a log file reader) without any behavior changes.
+        The engine is the appropriate place for policy decisions.
+    </div>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="lifecycle.html">Plugin Lifecycle</a> |
+        <strong>Next:</strong> <a href="spawn-tracking.html">Spawn ID Tracking</a>
+    </div>
+</main>
+
+</body>
+</html>

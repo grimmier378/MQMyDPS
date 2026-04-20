@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spawn ID Tracking - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html" class="active">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>Spawn ID Tracking</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>The Core Problem</h2>
+
+    <p>EverQuest's combat chat text never includes spawn IDs. A spawn ID is an integer that
+    uniquely identifies one specific mob in the world at a given time. The chat system only
+    knows mob names. When you fight four mobs all named "a skeleton", every melee hit, every
+    DoT tick, and every crit message just says "a skeleton" &mdash; there is nothing in the
+    text to tell them apart.</p>
+
+    <p>This is a fundamental limitation that any text-based DPS tracker faces. A pure
+    Lua-based tracker that only reads chat text will merge all four skeletons into one
+    entry. You cannot tell if you killed four weak skeletons or one strong one that took
+    a long time.</p>
+
+    <p>MQMyDPS overcomes this by being a C++ plugin with direct access to game memory.
+    It does not need to guess which mob "a skeleton" refers to &mdash; it can read the
+    actual data structures inside EverQuest to find out which specific spawn is currently
+    targeted, which spawn the pet is attacking, and which spawns are on your extended
+    target list.</p>
+
+    <p>Heal events are different: heals target player characters, not NPCs, and player
+    names are unique within a zone. No spawn ID resolution is needed for heal tracking
+    &mdash; the player name from the chat line is used directly as the map key in
+    <code>currentHealTargets</code>.</p>
+
+    <h2>What Is a Spawn ID?</h2>
+
+    <p>Every entity in EverQuest (player, NPC, pet, object) has a <code>SpawnID</code>: a
+    16-bit integer assigned when the entity enters the world and reused when it despawns.
+    In C++, you access this through <code>pTarget->SpawnID</code> on a
+    <code>PlayerClient*</code> pointer. The value is small (typical values are in the range
+    1&ndash;4000 depending on zone), and it is the canonical key for identifying any
+    specific entity in the zone.</p>
+
+    <p>Positive spawn IDs are real game IDs. Negative spawn IDs in MQMyDPS are synthetic
+    fallbacks created by the engine when no real ID can be determined &mdash; they are
+    assigned from a counter that starts at -1 and decrements.</p>
+
+    <h2>The Resolution Chain</h2>
+
+    <p><code>ResolveSpawnID(record)</code> is called once per damage event, immediately
+    after parsing and before accumulation. It tries strategies in order, returning the
+    first positive ID it finds. If all strategies fail, it returns a negative synthetic ID
+    so the event is still tracked, just grouped under an anonymous entry.</p>
+
+    <div class="diagram">
+ResolveSpawnID(record)
+    |
+    +-- If targetName is empty: return synthetic ID immediately
+    |   (this happens for raw Crit messages before RecordDamage fills the name)
+    |
+    +-- Switch on record.type:
+    |
+    |   Melee / NonMelee / Crit:
+    |       if pTarget != null AND pTarget->DisplayedName == targetName:
+    |           return pTarget->SpawnID      [Strategy 1: Direct Target]
+    |
+    |   PetMelee / PetNonMelee:
+    |       pPet = GetSpawnByID(pLocalPlayer->PetID)
+    |       if pPet != null:
+    |           pPetTarget = pPet->WhoFollowing
+    |           if pPetTarget != null AND pPetTarget->DisplayedName == targetName:
+    |               return pPetTarget->SpawnID   [Strategy 2: Pet Target]
+    |
+    |   DoT:
+    |       dotID = ResolveDoTSpawnID(targetName, spellName)
+    |       if dotID > 0: return dotID             [Strategy 3a: DoT Registry]
+    |       if pTarget != null AND pTarget->DisplayedName == targetName:
+    |           return pTarget->SpawnID            [Strategy 3b: Current Target Fallback]
+    |
+    |   DamageShield / default:
+    |       (intentionally no type-specific check - fall through to existing entry scan)
+    |
+    +-- Scan currentTargets for existing entry matching targetName:
+    |       if found: return existing ID            [Strategy 4: Existing Entry]
+    |       (prevents creating duplicate entries for the same mob)
+    |
+    +-- ResolveFromXTarget(targetName):
+    |       scan pLocalPC->pExtendedTargetList
+    |       filter: NPC only, not player pets
+    |       if exactly 1 NPC matches: return its SpawnID  [Strategy 5: XTarget]
+    |       if 0 or 2+ matches: continue
+    |
+    +-- return --m_syntheticIDCounter              [Strategy 6: Synthetic Fallback]
+    </div>
+
+    <h2>Strategy 1: Direct Target (Melee, NonMelee, Crit)</h2>
+
+    <pre><code>if (pTarget &amp;&amp; pTarget->DisplayedName == record.targetName)
+    return pTarget->SpawnID;</code></pre>
+
+    <p><code>pTarget</code> is a global pointer maintained by MacroQuest that always points
+    to your currently targeted entity, or null if you have no target. <code>DisplayedName</code>
+    is the name shown in the target window (not the internal name, which may differ for some
+    NPCs). This is the most reliable strategy because:</p>
+
+    <ul>
+        <li>EverQuest delivers the chat line in the same frame as the hit lands.</li>
+        <li>A melee hit can only come from your current target &mdash; you cannot melee
+        something you are not targeting.</li>
+        <li>The name comparison confirms that the target you have selected is actually
+        the mob named in the chat line (guards against edge cases like a pet hit coinciding
+        with your target switch).</li>
+    </ul>
+
+    <p><strong>When it fails:</strong> If you switch targets the instant a message arrives
+    (extremely rare), <code>pTarget</code> might already point to your new target. The name
+    check prevents misattribution in this case &mdash; if names do not match, the strategy
+    falls through rather than assigning the wrong ID.</p>
+
+    <h2>Strategy 2: Pet Target (PetMelee, PetNonMelee)</h2>
+
+    <pre><code>PlayerClient* pPet = GetSpawnByID(pLocalPlayer->PetID);
+if (pPet != nullptr)
+{
+    PlayerClient* pPetTarget = pPet->WhoFollowing;
+    if (pPetTarget &amp;&amp; pPetTarget->DisplayedName == record.targetName)
+        return pPetTarget->SpawnID;
+}</code></pre>
+
+    <p><code>pLocalPlayer->PetID</code> is the spawn ID of your pet (0 if you have no pet).
+    <code>GetSpawnByID()</code> looks up the <code>PlayerClient*</code> for that ID in the
+    zone's spawn list. <code>WhoFollowing</code> is the pointer to whichever entity the pet
+    is currently attacking or following.</p>
+
+    <p><strong>Why not use pTarget for pet hits?</strong> Your pet operates independently.
+    It attacks its own target, which is often the same as your target but is not guaranteed
+    to be. In a group fight, your pet might be attacking mob A while you are targeting mob B.
+    Using <code>pTarget</code> would misattribute the pet hit to the wrong mob. The pet's
+    <code>WhoFollowing</code> pointer gives the correct target directly.</p>
+
+    <p><strong>When it fails:</strong> <code>WhoFollowing</code> is null when the pet has no
+    target (it just killed something, or you commanded it to stay). In that case, the strategy
+    falls through. This can happen briefly right after a mob dies and the pet is in the
+    transition to a new target.</p>
+
+    <h2>Strategy 3: DoT Cast Registry</h2>
+
+    <p>DoT (damage-over-time) spells are the most complex case. A DoT tick arrives as:</p>
+
+    <pre><code>a skeleton has taken 300 damage from your Envenomed Bolt.</code></pre>
+
+    <p>There is no spawn ID in this text. Your current target might be a completely different
+    mob (you often cast a DoT and then switch to another target while the first one ticks).
+    <code>pTarget</code> would give the wrong spawn ID. The DoT registry solves this by
+    recording the target at the moment of casting, before you switch away.</p>
+
+    <h3>How the Registry Is Built (in TrackDoTCasting)</h3>
+
+    <p><code>TrackDoTCasting()</code> runs every 250ms in <code>OnPulse</code>. It watches
+    the player's casting state by monitoring <code>pLocalPlayer->CastingData.SpellID</code>:</p>
+
+    <ul>
+        <li>While <code>CastingData.SpellID != -1</code>: a spell is being cast. Save
+        the spell ID and target ID into <code>m_lastCastSpellID</code> and
+        <code>m_lastCastTargetID</code> on every pulse.</li>
+        <li>When <code>CastingData.SpellID</code> transitions to -1: the cast just finished
+        (or was interrupted). Check if the last cast spell is a DoT
+        (<code>IsDoTSpell()</code>) and detrimental (<code>IsDetrimentalSpell()</code>).
+        If both conditions are true, create an <code>ActiveDoT</code> entry with the
+        target's spawn ID and push it to <code>activeDoTs</code>.</li>
+    </ul>
+
+    <pre><code>if (pLocalPlayer->CastingData.SpellID != -1)
+{
+    m_lastCastSpellID  = pLocalPlayer->CastingData.SpellID;
+    m_lastCastTargetID = pLocalPlayer->CastingData.TargetID;
+}
+else if (m_lastCastSpellID != -1)
+{
+    EQ_Spell* pSpell = GetSpellByID(m_lastCastSpellID);
+    if (pSpell &amp;&amp; pSpell->IsDoTSpell() &amp;&amp; pSpell->IsDetrimentalSpell())
+    {
+        ActiveDoT dot;
+        dot.targetSpawnID = m_lastCastTargetID;
+        dot.targetName    = pSpawnTarget->DisplayedName;
+        dot.spellName     = pSpell->Name;
+        dot.castTime      = std::chrono::steady_clock::now();
+        activeDoTs.push_back(std::move(dot));
+    }
+    m_lastCastSpellID = -1;
+}</code></pre>
+
+    <p><strong>Why the double condition (IsDoTSpell AND IsDetrimentalSpell)?</strong>
+    <code>IsDoTSpell()</code> checks the spell's SPA effects (spell categories 0, 20, 69,
+    114, 125 cover DoT effects). But some beneficial DoT-like spells exist (HoT &mdash;
+    heals over time). The <code>IsDetrimentalSpell()</code> check ensures the registry only
+    captures offensive DoTs, not heals.</p>
+
+    <h3>How Attribution Works</h3>
+
+    <p>When a DoT tick arrives and is parsed, <code>ResolveDoTSpawnID(targetName, spellName)</code>
+    searches <code>activeDoTs</code> for an entry where both the target name and spell name
+    match. If found, the registered spawn ID is returned.</p>
+
+    <pre><code>for (const auto&amp; dot : activeDoTs)
+    if (dot.targetName == targetName &amp;&amp;
+        (spellName.empty() || dot.spellName == spellName))
+        return dot.targetSpawnID;</code></pre>
+
+    <p><strong>Scenario:</strong> You cast Envenomed Bolt on skeleton #1234, then switch
+    target to skeleton #5678. Skeleton #1234 takes a tick. The chat says "a skeleton has
+    taken 300 damage from your Envenomed Bolt." The registry has an entry for
+    "a skeleton" + "Envenomed Bolt" = spawnID 1234. Returned correctly, even though your
+    current target is #5678.</p>
+
+    <p><strong>Scenario:</strong> You have the same DoT on two skeletons. The registry has
+    two entries both with name "a skeleton" + "Envenomed Bolt". The first match wins,
+    which may be wrong. This is an inherent limitation when fighting multiple copies of
+    the same named mob with the same spell. Exact deduplication would require the game to
+    include spawn IDs in tick messages, which it does not.</p>
+
+    <h3>Registry Cleanup</h3>
+
+    <p>DoT entries are removed by three mechanisms to prevent the registry from growing
+    indefinitely and causing stale mis-attributions:</p>
+
+    <ul>
+        <li><strong>Mob despawns:</strong> <code>OnRemoveSpawn</code> fires when any mob
+        is removed from the world. The handler calls <code>RemoveActiveDoTs(spawnID)</code>,
+        erasing all entries for that spawn. This is the most precise cleanup &mdash; it
+        happens the moment the mob is gone.</li>
+        <li><strong>Player zones:</strong> <code>OnBeginZone</code> clears the entire
+        <code>activeDoTs</code> vector. All spawn IDs from the old zone are meaningless
+        in the new zone.</li>
+        <li><strong>Time-based expiry:</strong> Every 250ms in <code>TrackDoTCasting()</code>,
+        entries older than 5 minutes are removed. This covers edge cases where a mob
+        leaves the zone without triggering <code>OnRemoveSpawn</code>, or where you left
+        combat and the DoT simply stopped ticking without any cleanup event.</li>
+    </ul>
+
+    <h2>Strategy 4: Existing Entry Lookup</h2>
+
+    <pre><code>for (const auto&amp; [id, data] : currentTargets)
+    if (data.name == record.targetName)
+        return id;</code></pre>
+
+    <p>This strategy runs after all type-specific checks and before XTarget. Its purpose is
+    to avoid creating duplicate entries for the same mob. If you have already seen hits on
+    "a skeleton" with spawn ID 1234 in this battle, and a new hit arrives for "a skeleton"
+    that could not be resolved by direct target or DoT registry, returning 1234 keeps all
+    damage on the same entry rather than creating a new synthetic entry.</p>
+
+    <p>This is particularly important for damage shields: the mob that hit you (triggering
+    the DS) may or may not be your current target, but it is almost certainly in your
+    current battle. Using the existing entry prevents fragmentation of the battle summary
+    when DS damage cannot be directly attributed.</p>
+
+    <p><strong>Limitation:</strong> If you genuinely are fighting two mobs with the same
+    name and only one is in <code>currentTargets</code> so far, this strategy will attribute
+    new hits to the existing entry even if they came from the other mob. The XTarget
+    strategy below can sometimes distinguish them.</p>
+
+    <h2>Strategy 5: XTarget Scan</h2>
+
+    <pre><code>for (const ExtendedTargetSlot&amp; slot : *pLocalPC->pExtendedTargetList)
+{
+    if (slot.XTargetSlotStatus == eXTSlotEmpty || slot.SpawnID == 0)
+        continue;
+    if (slot.Name != targetName)
+        continue;
+
+    SPAWNINFO* pSpawn = GetSpawnByID(slot.SpawnID);
+    if (!pSpawn || pSpawn->Type != SPAWN_NPC)
+        continue;
+
+    if (pSpawn->MasterID != 0)
+    {
+        SPAWNINFO* pMaster = GetSpawnByID(pSpawn->MasterID);
+        if (pMaster &amp;&amp; pMaster->Type == SPAWN_PLAYER)
+            continue;  // Skip player-owned pets
+    }
+
+    matchID = pSpawn->SpawnID;
+    matchCount++;
+}
+if (matchCount == 1)
+    return matchID;</code></pre>
+
+    <p>The Extended Target window (XTarget) is EverQuest's aggro list. Any mob that has
+    aggro on you or your group appears in this list. The list contains the spawn ID of each
+    entry, making it a useful source for resolving ambiguous names.</p>
+
+    <p>The filter logic is careful about what counts as an NPC:</p>
+
+    <ul>
+        <li>Empty slots and slots with zero spawn ID are skipped.</li>
+        <li>Names must match the target name from the chat line.</li>
+        <li>The spawn must be of type <code>SPAWN_NPC</code>. Players are excluded because
+        you should not be dealing damage to players in normal PvE.</li>
+        <li>NPC pets owned by players are excluded: if <code>MasterID</code> is non-zero and
+        the master is a <code>SPAWN_PLAYER</code>, skip it. This prevents attributing your
+        hits on an enemy necromancer's pet to the wrong entry.</li>
+        <li>NPC pets owned by other NPCs are allowed. A ward or summoned mob from an enemy
+        caster is a legitimate target to track.</li>
+    </ul>
+
+    <p><strong>Why only use this when exactly one match is found?</strong> If two NPCs with
+    the same name are both on your XTarget list, we cannot tell which one a given chat line
+    refers to. Using an ambiguous result would be worse than using the synthetic fallback,
+    because it might silently accumulate damage on the wrong spawn. The one-match requirement
+    means the function only asserts certainty when it has it.</p>
+
+    <p><strong>When XTarget is most useful:</strong> Damage shield damage. The mob that just
+    hit you and triggered your damage shield is on your aggro list (by definition), is
+    probably not your current target (you may be targeting someone else), and its name is in
+    the DS chat line. If it is the only mob with that name on XTarget, this strategy resolves
+    it correctly.</p>
+
+    <h2>Strategy 6: Synthetic Fallback</h2>
+
+    <pre><code>return --m_syntheticIDCounter;  // Returns -1, then -2, then -3...</code></pre>
+
+    <p>When every other strategy fails, the engine creates a new negative ID. Each call
+    gets a unique negative number, so multiple unresolved hits on "a skeleton" do not all
+    merge into one entry &mdash; they become separate synthetic entries.</p>
+
+    <p>Synthetic entries are displayed in the UI without the "#id" suffix that real spawn IDs
+    get. The check is <code>data.spawnID > 0</code> before appending the ID tag:</p>
+
+    <pre><code>std::string label = data.spawnID > 0
+    ? fmt::format("{} (#{})", data.name, data.spawnID)
+    : data.name;  // Synthetic: just the name, no ID tag</code></pre>
+
+    <p>In practice, synthetic IDs should be rare in normal gameplay. They occur mainly when
+    fighting DoT targets without a registered cast (e.g., the DoT was cast before tracking
+    started) or when the XTarget list does not have the mob.</p>
+
+    <h2>Key Game State APIs Used</h2>
+
+    <table>
+        <thead><tr><th>API</th><th>Source Location</th><th>What it provides</th><th>Failure mode</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><code>pTarget</code></td>
+                <td>MQ2Main global</td>
+                <td>Current target's PlayerClient*</td>
+                <td>Null when nothing is targeted</td>
+            </tr>
+            <tr>
+                <td><code>pTarget->SpawnID</code></td>
+                <td>eqlib PlayerClient</td>
+                <td>Target's unique spawn ID (uint16_t)</td>
+                <td>Zero if the spawn is invalid</td>
+            </tr>
+            <tr>
+                <td><code>pTarget->DisplayedName</code></td>
+                <td>eqlib PlayerClient</td>
+                <td>Name shown in target window</td>
+                <td>Empty string for unnamed entities</td>
+            </tr>
+            <tr>
+                <td><code>pLocalPlayer->PetID</code></td>
+                <td>eqlib PlayerClient</td>
+                <td>Your pet's spawn ID (0 if no pet)</td>
+                <td>Stale briefly after pet dies</td>
+            </tr>
+            <tr>
+                <td><code>pPet->WhoFollowing</code></td>
+                <td>eqlib PlayerClient</td>
+                <td>Pet's current target (PlayerClient*)</td>
+                <td>Null when pet has no target</td>
+            </tr>
+            <tr>
+                <td><code>pLocalPlayer->CastingData.SpellID</code></td>
+                <td>eqlib LaunchSpellData</td>
+                <td>Spell ID being cast, -1 if idle</td>
+                <td>Transitions to -1 on cast complete OR interrupt</td>
+            </tr>
+            <tr>
+                <td><code>pLocalPlayer->CastingData.TargetID</code></td>
+                <td>eqlib LaunchSpellData</td>
+                <td>Target spawn ID of the spell being cast</td>
+                <td>0 or stale after cast ends</td>
+            </tr>
+            <tr>
+                <td><code>GetSpellByID(id)</code></td>
+                <td>MQ2Main</td>
+                <td>Looks up EQ_Spell by integer ID</td>
+                <td>Returns null for invalid IDs</td>
+            </tr>
+            <tr>
+                <td><code>pSpell->IsDoTSpell()</code></td>
+                <td>eqlib EQ_Spell</td>
+                <td>Checks SPA categories 0, 20, 69, 114, 125</td>
+                <td>False for any non-DoT spell</td>
+            </tr>
+            <tr>
+                <td><code>pSpell->IsDetrimentalSpell()</code></td>
+                <td>Spells.h</td>
+                <td>True if the spell is harmful (not a buff or heal)</td>
+                <td>Must combine with IsDoTSpell to exclude HoTs</td>
+            </tr>
+            <tr>
+                <td><code>pLocalPC->pExtendedTargetList</code></td>
+                <td>PcClient.h</td>
+                <td>Pointer to the XTarget list structure</td>
+                <td>Null if no extended target list assigned</td>
+            </tr>
+            <tr>
+                <td><code>ExtendedTargetSlot::SpawnID</code></td>
+                <td>eqlib PcClient</td>
+                <td>Spawn ID of the mob in each XTarget slot</td>
+                <td>0 for empty slots</td>
+            </tr>
+            <tr>
+                <td><code>GetCombatState()</code></td>
+                <td>MQ2Main</td>
+                <td>Returns eCombatState_Combat or other values</td>
+                <td>Not polled for combat start, only for combat end</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="warning">
+        <strong>All pointer checks are guarded.</strong> Before dereferencing any of the
+        pointers above, the code confirms it is non-null. A null pointer dereference in
+        a MacroQuest plugin crashes the entire EverQuest process. Every code path in
+        <code>ResolveSpawnID</code> checks <code>pTarget != nullptr</code>,
+        <code>pPet != nullptr</code>, <code>pPetTarget != nullptr</code>, and
+        <code>pLocalPC->pExtendedTargetList != nullptr</code> before accessing members.
+    </div>
+
+    <h2>Realistic Accuracy Expectations</h2>
+
+    <p>In typical play (single-target combat, or multiple targets with distinct names),
+    spawn resolution is close to 100% accurate. The challenging cases are:</p>
+
+    <ul>
+        <li><strong>Multiple same-named targets simultaneously:</strong> Resolution degrades
+        gracefully &mdash; direct hits and DoTs you cast while targeting a specific one
+        are attributed correctly; damage shields and pet damage may be merged under the
+        first-seen entry.</li>
+        <li><strong>DoTs cast before tracking started:</strong> No cast record exists.
+        Tick damage falls through to existing entry or XTarget scan.</li>
+        <li><strong>Quickly switching targets during melee:</strong> The name check prevents
+        misattribution, but if you switch targets and the old target's hit message arrives
+        after the switch, the hit may fall through to the existing entry or XTarget.</li>
+        <li><strong>DoTs on two identical-name mobs:</strong> Only the first matching registry
+        entry is used. The second mob's ticks are attributed to the first entry until the
+        first mob despawns and its registry entry is cleaned up.</li>
+    </ul>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="parsing.html">Chat Parsing</a> |
+        <strong>Next:</strong> <a href="rendering.html">ImGui Rendering</a>
+    </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plugin Lifecycle - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html" class="active">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>Plugin Lifecycle</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>What Is a MacroQuest Plugin Lifecycle?</h2>
+
+    <p>MacroQuest loads your plugin as a DLL into the EverQuest process. It calls a set of
+    well-known exported functions (callbacks) at specific moments: when the plugin loads,
+    when the game state changes, when a chat line arrives, 60 times per second on pulse,
+    and when a mob despawns. Your plugin registers these callbacks and MacroQuest calls them
+    at the right times. Understanding which callback fires when is essential to knowing why
+    the code is structured the way it is.</p>
+
+    <h2>Plugin Callbacks</h2>
+
+    <table>
+        <thead><tr><th>Callback</th><th>When it fires</th><th>What MQMyDPS does</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><code>InitializePlugin</code></td>
+                <td>Once, when the plugin DLL is loaded (either at EQ startup if auto-loaded,
+                or when the user runs <code>/plugin MQMyDPS</code>).</td>
+                <td>Creates the global <code>MyDPSEngine</code> on the heap, calls
+                <code>Initialize()</code> (creates the parser, seeds default colors, sets
+                session start time), registers the <code>/mydps</code> command, registers
+                the <code>${MyDPS}</code> TLO.</td>
+            </tr>
+            <tr>
+                <td><code>ShutdownPlugin</code></td>
+                <td>Once, when the plugin is unloaded or EQ exits.</td>
+                <td>Unregisters TLO and command (in that order &mdash; TLO first because
+                macros might reference it), calls <code>Shutdown()</code> (saves settings,
+                destroys parser), deletes engine, nulls the pointer.</td>
+            </tr>
+            <tr>
+                <td><code>SetGameState</code></td>
+                <td>Whenever the game state changes: entering world, going to character
+                select, zoning, etc.</td>
+                <td><code>GAMESTATE_INGAME</code>: calls <code>LoadCharacterSettings()</code>,
+                which reads per-character INI settings, sets character and pet names on the
+                parser, checks <code>IsPluginLoaded("MQMyChat")</code> and caches the result
+                in <code>m_myChatLoaded</code>, and starts auto-tracking if
+                <code>AutoStart=true</code>. <code>GAMESTATE_CHARSELECT</code>: saves
+                settings and clears character/server name fields.</td>
+            </tr>
+            <tr>
+                <td><code>OnIncomingChat</code></td>
+                <td>Every chat line received by the EQ client, including combat messages.
+                Returns <code>bool</code> &mdash; returning true would suppress the line
+                from chat display. MQMyDPS always returns false (never suppresses).</td>
+                <td>If tracking is enabled, feeds the chat line to
+                <code>ProcessChat()</code> for parsing and damage or heal recording.</td>
+            </tr>
+            <tr>
+                <td><code>OnPulse</code></td>
+                <td>Every game frame (approximately 60 times per second). MQMyDPS
+                throttles its own work to 250ms intervals using a static timer.</td>
+                <td>Calls <code>TrackDoTCasting()</code> to detect spell cast completions,
+                <code>UpdateCombatState()</code> to check if combat ended, and
+                <code>CleanExpiredRecords()</code> to prune old spam entries. Does nothing
+                if tracking is disabled.</td>
+            </tr>
+            <tr>
+                <td><code>OnUpdateImGui</code></td>
+                <td>Every render frame, inside ImGui's render pass. Only when
+                <code>GAMESTATE_INGAME</code>.</td>
+                <td>Calls <code>RenderMainWindow</code>, <code>RenderConfigWindow</code>,
+                and <code>RenderCombatSpam</code> on the renderer. Each function checks
+                its own visibility flag first, so invisible windows cost almost nothing.</td>
+            </tr>
+            <tr>
+                <td><code>OnBeginZone</code></td>
+                <td>When the player begins zoning (before the zone load).</td>
+                <td>Clears <code>inCombat</code> flag and the entire <code>activeDoTs</code>
+                registry. All spawn IDs from the old zone are now invalid, so DoT
+                attribution must start fresh in the new zone.</td>
+            </tr>
+            <tr>
+                <td><code>OnRemoveSpawn</code></td>
+                <td>When any spawn (mob, player, pet) is removed from the world, including
+                when a mob dies, despawns, or you lose sight of it.</td>
+                <td>Removes all <code>ActiveDoT</code> entries whose <code>targetSpawnID</code>
+                matches the despawned spawn. This prevents stale DoT entries from
+                mis-attributing future hits on a new mob that happens to reuse the same name.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Why 250ms Throttling in OnPulse?</h2>
+
+    <p><code>OnPulse</code> fires every frame, which at 60 FPS means 60 calls per second.
+    The work done in <code>TrackDoTCasting</code> and <code>UpdateCombatState</code> is not
+    expensive, but it reads live game state pointers (<code>pLocalPlayer->CastingData</code>,
+    <code>GetCombatState()</code>) and does timer comparisons. Doing this 60 times per second
+    provides no benefit over doing it 4 times per second for DPS tracking purposes. The
+    250ms throttle is implemented with a <code>static</code> local timer variable that
+    persists between calls:</p>
+
+    <pre><code>static auto pulseTimer = std::chrono::steady_clock::now();
+if (std::chrono::steady_clock::now() &lt; pulseTimer)
+    return;  // Too soon, skip this frame
+pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);</code></pre>
+
+    <h2>Combat State Machine</h2>
+
+    <p>The state machine governs when battle counters are active and when a battle is
+    finalized into history. Understanding this helps explain why damage might appear in
+    one battle vs. another, and why there is a delay before a battle closes out.</p>
+
+    <div class="diagram">
+[Not Tracking]  --/mydps start-->  [Tracking, Out of Combat]
+                                        |
+                            damage event with isDamageOut=true
+                            (your melee, spell, DoT, pet, or DS
+                             that actually landed - not a miss)
+                                        |
+                                        v
+                                [In Combat]
+                                (battleDamage accumulating,
+                                 currentTargets populating,
+                                 currentHealTargets populating when heals land,
+                                 battlePetDamage/battleNonMeleeDmg tracking,
+                                 battleDirectHeals/battleCritHeals tracking)
+                                    |
+                    GetCombatState() != eCombatState_Combat
+                    (game says you left combat - but we wait)
+                                    |
+                                    v
+                            [Combat End Pending]
+                            (m_combatEndPending=true,
+                             m_leftCombatTime set)
+                                    |
+                        wait battleEndDelay seconds
+                        (default 10s, configurable)
+                        If you hit something again, return to [In Combat]
+                                    |
+                                    v
+                            FinalizeBattle()
+                            (BattleData created,
+                             currentTargets moved to battle.targets,
+                             currentHealTargets moved to battle.healTargets,
+                             summary sent to MQMyChat if loaded,
+                             all battle counters reset to 0)
+                                    |
+                                    v
+                        [Tracking, Out of Combat]
+    </div>
+
+    <h3>Why Combat Starts on First Hit, Not on GetCombatState()</h3>
+
+    <p>The engine detects combat entry by watching for <code>isDamageOut=true</code> in
+    <code>RecordDamage</code>, not by polling <code>GetCombatState()</code>. This is because
+    the combat spam overlay and battle counters should start at the moment you deal your
+    first damage, which is a well-defined point in time associated with the actual event.
+    <code>GetCombatState()</code> is only used to detect combat <em>end</em>, because EQ's
+    combat flag transitions after your last hit, giving a reliable "you are no longer
+    fighting anything" signal.</p>
+
+    <p>Note that heal events (<code>DirectHeal</code>, <code>CritHeal</code>) do <em>not</em>
+    trigger combat entry on their own. <code>isDamageOut</code> excludes heal types explicitly.
+    Heals only contribute to the battle totals if you are already in combat (i.e., you dealt
+    damage first).</p>
+
+    <h3>Why the Battle End Delay Exists</h3>
+
+    <p><code>GetCombatState()</code> can briefly return non-combat during pauses in a fight:
+    between mob spawns in a wave, while running to the next pull, or when a DoT is ticking
+    but you have not swung recently. Without the delay, each such pause would finalize the
+    current battle and start a new one, fragmenting what is logically a single combat
+    session into many tiny battles. The 10-second default means a pause shorter than 10
+    seconds is treated as part of the same battle.</p>
+
+    <h3>Battle Finalization</h3>
+
+    <p><code>FinalizeBattle()</code> creates a <code>BattleData</code> snapshot:</p>
+    <ol>
+        <li>Increments <code>battleCounter</code> and stores it as <code>battleNumber</code></li>
+        <li>Copies session counters into the battle struct, including <code>battlePetDamage</code>,
+        <code>battleNonMeleeDmg</code>, <code>battleDirectHeals</code>, and
+        <code>battleCritHeals</code></li>
+        <li>Computes DPS and average damage</li>
+        <li>Moves <code>currentTargets</code> into <code>battle.targets</code> via
+        <code>std::move</code> (zero-cost transfer of the hash map's heap memory)</li>
+        <li>Moves <code>currentHealTargets</code> into <code>battle.healTargets</code> via
+        <code>std::move</code></li>
+        <li>Sends a colored summary to MQMyChat if <code>m_myChatLoaded</code> is true,
+        listing per-target DPS breakdown and per-player heal totals</li>
+        <li>Pushes the completed battle to <code>battleHistory</code></li>
+        <li>Resets all battle counters (damage, heals, hits) to zero</li>
+        <li>Clears <code>currentTargets</code> and <code>currentHealTargets</code>
+        (both were emptied by the move)</li>
+        <li>Sets <code>inCombat = false</code> and <code>m_combatEndPending = false</code></li>
+    </ol>
+
+    <div class="note">
+        <strong>Session damage vs battle damage:</strong> <code>sessionDamage</code> and
+        <code>sessionHitCount</code> are <em>never</em> reset by <code>FinalizeBattle()</code>.
+        They accumulate across all battles for the entire session (until <code>ResetAll()</code>
+        is called or the plugin is unloaded). This is why <code>${MyDPS.DPS}</code> gives
+        your lifetime session DPS while <code>${MyDPS.BattleDPS}</code> gives the current
+        battle DPS.
+    </div>
+
+    <h2>Settings Persistence</h2>
+
+    <p>Settings are stored as INI files at
+    <code>[MQ Config Dir]\MQMyDPS\[Server]\[CharName].ini</code>. The directory is
+    created automatically on first save via
+    <code>std::filesystem::create_directories()</code>. This per-server, per-character
+    path means you can have different display preferences on different characters or
+    servers without them interfering with each other.</p>
+
+    <h3>Load/Save Timing</h3>
+
+    <ul>
+        <li><code>LoadCharacterSettings()</code> is called when <code>SetGameState</code>
+        fires with <code>GAMESTATE_INGAME</code>. At this point <code>pLocalPC</code> is
+        valid and the character and server names can be read. This is also where
+        <code>m_myChatLoaded</code> is set by calling
+        <code>IsPluginLoaded("MQMyChat")</code>.</li>
+        <li><code>SaveCharacterSettings()</code> is called in <code>Shutdown()</code>
+        (plugin unload) and in <code>UnloadCharacterSettings()</code> (char select).</li>
+        <li>The Save button in the config window also calls <code>SaveCharacterSettings()</code>
+        immediately and closes the config window.</li>
+    </ul>
+
+    <h3>INI Sections and Keys</h3>
+
+    <p>The following keys are actually read and written by the current implementation.
+    Two keys that appeared in earlier versions (<code>ShowHistory</code> and
+    <code>ShowCombatWindow</code>) have been removed from the settings struct and are
+    no longer persisted.</p>
+
+    <table>
+        <thead><tr><th>Section</th><th>Key</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+        <tbody>
+            <tr><td><code>[Options]</code></td><td>SortNewest</td><td>bool</td><td>true</td><td>History tab sort order (newest battle first)</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowType</td><td>bool</td><td>true</td><td>Show attack type in spam overlay</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowTarget</td><td>bool</td><td>true</td><td>Show target name in spam overlay</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowMyMisses</td><td>bool</td><td>true</td><td>Include your misses in spam</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowMissMe</td><td>bool</td><td>true</td><td>Include mob misses in spam</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowHitMe</td><td>bool</td><td>true</td><td>Include incoming damage in spam</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowCritHeals</td><td>bool</td><td>true</td><td>Include crit heals in spam</td></tr>
+            <tr><td><code>[Options]</code></td><td>ShowDS</td><td>bool</td><td>true</td><td>Include damage shield procs in spam</td></tr>
+            <tr><td><code>[Options]</code></td><td>AddPet</td><td>bool</td><td>true</td><td>Track pet damage</td></tr>
+            <tr><td><code>[Options]</code></td><td>AutoStart</td><td>bool</td><td>false</td><td>Auto-start tracking on login</td></tr>
+            <tr><td><code>[Options]</code></td><td>SpamClickThrough</td><td>bool</td><td>true</td><td>Spam overlay passes clicks to game (NoInputs flag)</td></tr>
+            <tr><td><code>[Options]</code></td><td>DisplayTime</td><td>int</td><td>10</td><td>Seconds to show each spam line. Also controls recentRecords cleanup age.</td></tr>
+            <tr><td><code>[Options]</code></td><td>BattleEndDelay</td><td>int</td><td>10</td><td>Seconds out of combat before battle finalizes</td></tr>
+            <tr><td><code>[Options]</code></td><td>FontScale</td><td>float</td><td>1.0</td><td>Main and config window font multiplier</td></tr>
+            <tr><td><code>[Options]</code></td><td>SpamFontScale</td><td>float</td><td>1.0</td><td>Combat spam overlay font multiplier</td></tr>
+            <tr><td><code>[Windows]</code></td><td>ShowMain</td><td>bool</td><td>true</td><td>Main window visibility on load</td></tr>
+            <tr><td><code>[Windows]</code></td><td>ShowConfig</td><td>bool</td><td>false</td><td>Config window visibility on load</td></tr>
+            <tr><td><code>[Windows]</code></td><td>ShowCombatSpam</td><td>bool</td><td>true</td><td>Spam overlay visibility on load. Controlled at runtime via /mydps spam or "Show Combat Spam" checkbox.</td></tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        <strong>Removed settings:</strong> Earlier versions of the plugin persisted
+        <code>ShowHistory</code> and <code>ShowCombatWindow</code> flags. These have been
+        removed from <code>MyDPSSettings</code> and are no longer read or written. If an
+        old INI file contains these keys, they are harmlessly ignored on load.
+    </div>
+
+    <div class="note">
+        <strong>Why are colors not in the INI?</strong> The current implementation initializes
+        colors to defaults in <code>InitDefaultColors()</code> and does not persist them to
+        the INI. Color changes made in the config window survive as long as the plugin is
+        loaded, but are lost on unload. If you want persistent custom colors, that would
+        require adding color serialization to <code>SaveCharacterSettings()</code>.
+    </div>
+
+    <h2>recentRecords Cleanup</h2>
+
+    <p><code>CleanExpiredRecords()</code> runs every 250ms in <code>OnPulse</code>. It pops
+    records from the front of the <code>recentRecords</code> deque whose age exceeds
+    <code>settings.displayTime</code> seconds. Because records are appended in timestamp
+    order, the front is always the oldest, so this is an efficient O(n) scan that stops
+    at the first record that is still fresh.</p>
+
+    <pre><code>while (!recentRecords.empty())
+{
+    auto age = now - recentRecords.front().timestamp;
+    if (age > maxAge)
+        recentRecords.pop_front();
+    else
+        break;
+}</code></pre>
+
+    <div class="note">
+        <strong>Previous behavior:</strong> An earlier version of this cleanup used
+        <code>displayTime * 3</code> as the maximum age, keeping records around three
+        times longer than they were visible. The current implementation uses
+        <code>displayTime</code> directly &mdash; records are cleaned as soon as they
+        would no longer be displayed by the spam overlay.
+    </div>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="architecture.html">Architecture</a> |
+        <strong>Next:</strong> <a href="parsing.html">Chat Parsing</a>
+    </div>
+</main>
+
+</body>
+</html>

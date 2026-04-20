@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commands &amp; TLO - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html" class="active">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>Commands &amp; TLO</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>Slash Commands</h2>
+
+    <p>All commands are registered under <code>/mydps</code> and dispatched via a single
+    command handler function <code>MyDPSCommand()</code>. The handler reads the first
+    argument with <code>GetArg()</code> and matches it case-insensitively using
+    <code>ci_equals()</code>. If no argument is given, the main window is toggled.</p>
+
+    <p>The help text printed for any unrecognized argument lists all available subcommands:</p>
+    <pre><code>[MQMyDPS] Commands: start, stop, reset, report, show, hide, spam, lock, config</code></pre>
+
+    <table>
+        <thead><tr><th>Command</th><th>Action</th><th>Notes</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><code>/mydps</code></td>
+                <td>Toggle main report window</td>
+                <td>No argument: flips <code>showMainWindow</code></td>
+            </tr>
+            <tr>
+                <td><code>/mydps show</code></td>
+                <td>Show main report window</td>
+                <td>Sets <code>showMainWindow = true</code></td>
+            </tr>
+            <tr>
+                <td><code>/mydps hide</code></td>
+                <td>Hide main report window</td>
+                <td>Sets <code>showMainWindow = false</code></td>
+            </tr>
+            <tr>
+                <td><code>/mydps config</code></td>
+                <td>Toggle config window</td>
+                <td>Flips <code>showConfigWindow</code></td>
+            </tr>
+            <tr>
+                <td><code>/mydps spam</code></td>
+                <td>Toggle combat spam overlay</td>
+                <td>Flips <code>showCombatSpam</code>, prints confirmation to chat</td>
+            </tr>
+            <tr>
+                <td><code>/mydps lock</code></td>
+                <td>Toggle spam window click-through</td>
+                <td>Flips <code>settings.spamClickThrough</code>. When on (default), the
+                spam overlay passes all mouse input to the game. When off, the overlay is
+                draggable. Prints "locked" or "unlocked" to chat.</td>
+            </tr>
+            <tr>
+                <td><code>/mydps start</code></td>
+                <td>Start damage tracking</td>
+                <td>Sets <code>tracking = true</code>. If no session damage has been
+                recorded yet, also resets <code>sessionStartTime</code> to now so the
+                DPS calculation starts from this moment.</td>
+            </tr>
+            <tr>
+                <td><code>/mydps stop</code></td>
+                <td>Stop damage tracking</td>
+                <td>Sets <code>tracking = false</code>. Existing data is preserved.
+                <code>OnPulse</code> and <code>OnIncomingChat</code> processing also
+                stop immediately (both check the flag before doing any work).</td>
+            </tr>
+            <tr>
+                <td><code>/mydps reset</code></td>
+                <td>Clear all data</td>
+                <td>Calls <code>ResetAll()</code>: clears recentRecords, currentTargets,
+                currentHealTargets, battleHistory, activeDoTs, all counters, and resets
+                sessionStartTime.</td>
+            </tr>
+            <tr>
+                <td><code>/mydps report</code></td>
+                <td>Print session summary to chat (and MQMyChat if loaded)</td>
+                <td>Prints session DPS, formatted total damage, and hit count to the
+                EverQuest chat window in MQ color codes. If MQMyChat is loaded, the same
+                formatted message is also sent to the "MyDPS" channel. Format:
+                <code>[MQMyDPS] Session DPS: X.X | Total: Xk | Hits: X</code></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>The lock Command in Detail</h3>
+
+    <p>When the spam window is locked (<code>spamClickThrough = true</code>), ImGui creates
+    it with the <code>ImGuiWindowFlags_NoInputs</code> flag. This tells the OS-level window
+    message handler that this region should be treated as "transparent to input" &mdash;
+    mouse clicks fall through to the EverQuest window underneath. This is the correct default
+    behavior during combat because you do not want to accidentally drag a UI element when
+    trying to click on a mob.</p>
+
+    <p>When you want to reposition the spam window, use <code>/mydps lock</code> to
+    temporarily disable click-through, drag the window to the desired position, then
+    use <code>/mydps lock</code> again to re-enable it. The setting is saved to the INI
+    file when settings are saved.</p>
+
+    <h2>Top Level Object: ${MyDPS}</h2>
+
+    <h3>What Is a TLO?</h3>
+
+    <p>A Top Level Object (TLO) is the mechanism by which a MacroQuest plugin exposes data
+    to MQ2 macros and Lua scripts. When you write <code>${MyDPS.DPS}</code> in a macro, MQ2
+    finds the <code>MyDPS</code> TLO by name, calls its <code>GetMember("DPS")</code>
+    function, and substitutes the result into the macro line. The TLO system provides a
+    uniform interface so all plugins expose data the same way.</p>
+
+    <p>MQMyDPS registers its TLO in <code>InitializePlugin()</code> via
+    <code>AddTopLevelObject("MyDPS", MyDPSType::dataMyDPS)</code> and removes it in
+    <code>ShutdownPlugin()</code>. If the plugin is not loaded, <code>${MyDPS}</code> returns
+    nothing (macro authors should check <code>${MyDPS.Version}</code> to confirm the plugin
+    is active).</p>
+
+    <h3>Members of ${MyDPS}</h3>
+
+    <table>
+        <thead><tr><th>Member</th><th>Return type</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><code>Version</code></td><td>float</td>
+                <td>Plugin version number (currently 0.1). Useful as a plugin-loaded
+                check: if <code>${MyDPS.Version}</code> is 0, the plugin is not active.</td>
+            </tr>
+            <tr>
+                <td><code>DPS</code></td><td>float</td>
+                <td>Session DPS: total session damage divided by seconds since session
+                start (or since the last <code>/mydps reset</code>). Returns 0 if no
+                damage has been recorded.</td>
+            </tr>
+            <tr>
+                <td><code>TotalDamage</code></td><td>int64</td>
+                <td>Total damage dealt across the entire session, all battles combined.
+                This is <code>sessionDamage</code> in the engine.</td>
+            </tr>
+            <tr>
+                <td><code>InCombat</code></td><td>bool</td>
+                <td>True when a battle is currently in progress (first damage-out hit
+                received and combat has not yet ended and finalized). Remains true
+                during the battle-end-pending delay period &mdash; it only becomes
+                false when <code>FinalizeBattle()</code> actually runs after the
+                delay expires.</td>
+            </tr>
+            <tr>
+                <td><code>BattleDPS</code></td><td>float</td>
+                <td>Current battle DPS: battle damage divided by battle duration. Returns
+                0 if not in combat.</td>
+            </tr>
+            <tr>
+                <td><code>BattleDuration</code></td><td>float</td>
+                <td>Current battle duration in seconds. Returns 0 if not in combat.</td>
+            </tr>
+            <tr>
+                <td><code>TargetCount</code></td><td>int</td>
+                <td>Number of distinct spawn entries in <code>currentTargets</code> for
+                the active battle. Returns 0 when not in combat.</td>
+            </tr>
+            <tr>
+                <td><code>BattleCount</code></td><td>int</td>
+                <td>Number of completed battles in <code>battleHistory</code>. Does not
+                count the current in-progress battle.</td>
+            </tr>
+            <tr>
+                <td><code>Target[id]</code></td><td>MyDPSTarget</td>
+                <td>Look up a target from <code>currentTargets</code> by spawn ID (integer
+                argument) or by name (string argument, first match). Returns a
+                <code>MyDPSTarget</code> type if found, nothing if not found. Only searches
+                the current battle &mdash; historical battles are not accessible via TLO.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Methods of ${MyDPS}</h3>
+
+    <table>
+        <thead><tr><th>Method</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><code>Reset</code></td>
+                <td>Calls <code>engine.ResetAll()</code>, clearing all session data.
+                Same effect as <code>/mydps reset</code>. Returns true to indicate
+                success. In macro syntax: <code>${MyDPS.Reset}</code>.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>ToString</h3>
+    <p>Returns the string <code>"MQMyDPS"</code>. Used when the TLO itself is used as a
+    string, e.g., <code>/echo ${MyDPS}</code> prints <code>MQMyDPS</code>.</p>
+
+    <h2>Target Type: ${MyDPS.Target[id]}</h2>
+
+    <h3>How Target Lookup Works</h3>
+
+    <p>When you write <code>${MyDPS.Target[1234]}</code>, MQ2 calls
+    <code>MyDPSType::GetMember("Target", "1234")</code>. The handler parses the index
+    as an integer with <code>strtol()</code>. If parsing succeeds, it calls
+    <code>FindTargetBySpawnID(1234)</code> which does a direct hash map lookup in
+    <code>currentTargets</code>. If parsing fails (the index is not a number), it calls
+    <code>FindTargetByName(index)</code> which does a linear search by name.</p>
+
+    <p>If found, the spawn ID is stored in <code>Dest.Int</code> and the type is set to
+    <code>pMyDPSTargetType</code>. Subsequent member accesses (e.g., <code>.TotalDamage</code>)
+    call <code>MyDPSTargetType::GetMember()</code>, which retrieves the spawn ID from
+    <code>VarPtr.Int</code> and looks up the live <code>TargetDamageData</code> again.
+    This means the target data is always fresh &mdash; no caching at the TLO level.</p>
+
+    <div class="warning">
+        <strong>Target lookup only searches currentTargets.</strong> The TLO cannot access
+        historical battle data. If you want to query a mob from a previous battle, that
+        data is in <code>battleHistory</code>, which is not exposed via TLO at this time.
+    </div>
+
+    <h3>Members of ${MyDPS.Target[id]}</h3>
+
+    <table>
+        <thead><tr><th>Member</th><th>Return type</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><code>Name</code></td><td>string</td>
+                <td>The mob's display name as it appeared in the chat line when first hit.</td>
+            </tr>
+            <tr>
+                <td><code>SpawnID</code></td><td>int</td>
+                <td>The spawn ID used as the map key. Positive values are real game spawn IDs.
+                Negative values are synthetic fallbacks assigned when no real ID was resolvable.</td>
+            </tr>
+            <tr>
+                <td><code>DPS</code></td><td>float</td>
+                <td>DPS against this specific target: totalDamage / duration from first to last hit.
+                Returns 0 if no hits have landed (hitCount == 0).</td>
+            </tr>
+            <tr>
+                <td><code>TotalDamage</code></td><td>int64</td>
+                <td>Sum of all damage types recorded against this spawn during the current battle.
+                Includes melee, spells, DoTs, pet damage, and damage shields.</td>
+            </tr>
+            <tr>
+                <td><code>HitCount</code></td><td>int</td>
+                <td>Number of times damage landed on this spawn. Misses are not counted.</td>
+            </tr>
+            <tr>
+                <td><code>Duration</code></td><td>float</td>
+                <td>Seconds between the first and last hit recorded against this spawn.
+                Minimum 1 second (to avoid zero-division in DPS calculation).</td>
+            </tr>
+            <tr>
+                <td><code>AvgDamage</code></td><td>float</td>
+                <td>Average damage per hit: TotalDamage / HitCount. Returns 0 if HitCount is 0.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>ToString</h3>
+    <p>Returns the target's display name. This means <code>/echo ${MyDPS.Target[1234]}</code>
+    prints the mob's name, and <code>/echo ${MyDPS.Target[1234].Name}</code> gives the same
+    result.</p>
+
+    <h2>Settings Reference</h2>
+
+    <p>The following table lists all settings exposed in the config window and their
+    corresponding INI keys and <code>MyDPSSettings</code> struct fields. The two older
+    settings <code>ShowHistory</code> and <code>ShowCombatWindow</code> have been removed
+    from the plugin and are no longer persisted.</p>
+
+    <table>
+        <thead><tr><th>Config label</th><th>INI key</th><th>Struct field</th><th>Default</th><th>Effect</th></tr></thead>
+        <tbody>
+            <tr><td>Show Type</td><td>ShowType</td><td>showType</td><td>true</td><td>Show attack type in spam overlay lines</td></tr>
+            <tr><td>Show Target</td><td>ShowTarget</td><td>showTarget</td><td>true</td><td>Show target name in spam overlay lines</td></tr>
+            <tr><td>Show My Misses</td><td>ShowMyMisses</td><td>showMyMisses</td><td>true</td><td>Include your miss events in spam and tracking</td></tr>
+            <tr><td>Show Missed Me</td><td>ShowMissMe</td><td>showMissMe</td><td>true</td><td>Include mob-misses-you events in spam</td></tr>
+            <tr><td>Show Hit Me</td><td>ShowHitMe</td><td>showHitMe</td><td>true</td><td>Include incoming damage events in spam</td></tr>
+            <tr><td>Show Crit Heals</td><td>ShowCritHeals</td><td>showCritHeals</td><td>true</td><td>Include critical heal events in spam</td></tr>
+            <tr><td>Show Damage Shield</td><td>ShowDS</td><td>showDS</td><td>true</td><td>Include damage shield proc events in spam and tracking</td></tr>
+            <tr><td>Track Pet</td><td>AddPet</td><td>addPet</td><td>true</td><td>When true, parse pet damage. When false, pet name is cleared so pet methods never match.</td></tr>
+            <tr><td>Show Combat Spam</td><td>ShowCombatSpam (Windows section)</td><td>engine.showCombatSpam</td><td>true</td><td>Show or hide the combat spam overlay. Toggle with /mydps spam.</td></tr>
+            <tr><td>Sort Newest First</td><td>SortNewest</td><td>sortNewest</td><td>true</td><td>History table sort order</td></tr>
+            <tr><td>Auto Start</td><td>AutoStart</td><td>autoStart</td><td>false</td><td>If true, tracking begins automatically when entering the game world</td></tr>
+            <tr><td>Lock Spam Window</td><td>SpamClickThrough</td><td>spamClickThrough</td><td>true</td><td>When true, spam overlay has ImGuiWindowFlags_NoInputs (click-through). Toggle with /mydps lock.</td></tr>
+            <tr><td>Display Time (s)</td><td>DisplayTime</td><td>displayTime</td><td>10</td><td>Seconds each spam line remains visible. Also controls recentRecords cleanup age.</td></tr>
+            <tr><td>Battle End Delay (s)</td><td>BattleEndDelay</td><td>battleEndDelay</td><td>10</td><td>Seconds out of combat before the current battle is finalized.</td></tr>
+            <tr><td>Font Scale</td><td>FontScale</td><td>fontScale</td><td>1.0</td><td>Multiplier for main and config window font size. Range 0.5&ndash;2.0.</td></tr>
+            <tr><td>Spam Font Scale</td><td>SpamFontScale</td><td>spamFontScale</td><td>1.0</td><td>Multiplier for combat spam overlay font size. Range 0.5&ndash;2.0.</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Usage Examples</h2>
+
+    <h3>Macro Syntax</h3>
+    <pre><code>/echo My DPS: ${MyDPS.DPS}
+/echo Total Damage: ${MyDPS.TotalDamage}
+/echo In Combat: ${MyDPS.InCombat}
+/echo Target Count: ${MyDPS.TargetCount}
+
+/echo Target by spawn ID:   ${MyDPS.Target[1234].Name} - ${MyDPS.Target[1234].TotalDamage}
+/echo Target by name:       ${MyDPS.Target[a skeleton].DPS}
+
+/echo Battle Count: ${MyDPS.BattleCount}
+/echo Battle DPS:   ${MyDPS.BattleDPS}
+
+${MyDPS.Reset}</code></pre>
+
+    <h3>Lua Usage</h3>
+    <pre><code>local dps       = mq.TLO.MyDPS.DPS()
+local inCombat  = mq.TLO.MyDPS.InCombat()
+local targetDmg = mq.TLO.MyDPS.Target(1234).TotalDamage()
+local targetName = mq.TLO.MyDPS.Target("a skeleton").Name()
+
+if mq.TLO.MyDPS.InCombat() then
+    print("Battle DPS: " .. mq.TLO.MyDPS.BattleDPS())
+end</code></pre>
+
+    <h3>Checking if the Plugin is Loaded</h3>
+    <pre><code>/if (${MyDPS.Version} == 0) {
+    /echo MQMyDPS is not loaded.
+    /return
+}</code></pre>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="rendering.html">ImGui Rendering</a> |
+        <strong>Next:</strong> <a href="mychat-integration.html">MQMyChat Integration</a>
+    </div>
+</main>
+
+</body>
+</html>

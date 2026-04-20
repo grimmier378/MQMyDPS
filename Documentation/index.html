@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQMyDPS Documentation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html" class="active">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>MQMyDPS Documentation</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>What is MQMyDPS?</h2>
+
+    <p>MQMyDPS is a native C++ MacroQuest plugin that tracks your personal DPS (damage per
+    second) and healing output in EverQuest. It is a port and evolution of
+    <a href="https://github.com/grimmier378/MyUI" target="_blank">MyUI's mydps.lua module</a>,
+    rewritten in C++ for better performance and deeper integration with MacroQuest's game
+    state APIs.</p>
+
+    <p>The fundamental challenge in building a DPS tracker for EverQuest is that the game's
+    combat chat text never includes spawn IDs. If you fight two mobs both named "a skeleton",
+    every hit message just says "a skeleton" &mdash; there is no way to distinguish them from
+    chat text alone. The Lua version of this tracker had this limitation. The C++ version
+    overcomes it by reading live game state directly: your current target's spawn ID, your
+    pet's attack target, the spell you just finished casting, and your extended target
+    (XTarget) list.</p>
+
+    <p>Here is what the plugin provides:</p>
+
+    <ul>
+        <li><strong>Real-time combat spam overlay:</strong> A floating window showing recent
+        damage and heal events, fully color-coded by event type, with configurable font
+        scaling. Newest events appear at the top. Can be set click-through so it never
+        interferes with gameplay.</li>
+        <li><strong>Battle tracking:</strong> Automatic combat state detection using
+        <code>GetCombatState()</code>. Battles are finalized after a configurable delay
+        when combat ends, preserving per-spawn breakdowns in history.</li>
+        <li><strong>Per-spawn damage attribution:</strong> Each damage event is resolved to
+        a specific spawn ID using a multi-strategy approach &mdash; direct target check for
+        melee, pet's target for pet damage, cast tracking registry for DoTs, XTarget scan
+        for damage shields, and name-based fallback.</li>
+        <li><strong>Pet and non-melee breakdown:</strong> Pet damage (melee and spells) and
+        your own non-melee (direct damage spells) are tracked as separate sub-totals in
+        both the current battle view and the history table.</li>
+        <li><strong>Healing tracking:</strong> Direct heals and critical heals are recorded
+        per player target. The Healing tab shows aggregated session heals per player, sorted
+        by total, with a pie chart breakdown.</li>
+        <li><strong>Battle history:</strong> Completed battles are stored with per-target
+        and per-heal-target breakdowns. The History table has 12 columns (hideable,
+        reorderable), with expandable rows per spawn and heal target sections.</li>
+        <li><strong>Full color-coded UI:</strong> Stats values in the Current Battle tab are
+        colored by data type. Target names use distinct colors: damage targets in reddish
+        pink, heal targets in light blue. The menu bar DPS counter is also color-coded.</li>
+        <li><strong>Graphs:</strong> ImPlot-powered DPS line graphs and damage bar charts
+        across battles, plus pie charts showing damage distribution by target.</li>
+        <li><strong>MQMyChat integration:</strong> If MQMyChat is loaded, battle summaries,
+        heal reports, and the <code>/mydps report</code> command output are automatically
+        sent to a dedicated "MyDPS" channel in MQMyChat using MQ color codes.</li>
+        <li><strong>TLO API:</strong> Exposes DPS data to macros and Lua scripts via
+        <code>${MyDPS.DPS}</code>, <code>${MyDPS.Target[id].TotalDamage}</code>, etc.</li>
+        <li><strong>Per-character settings:</strong> All configuration is saved to INI files
+        per server and character name.</li>
+    </ul>
+
+    <h2>Source File Structure</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>File</th>
+                <th>Purpose</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>MQMyDPS.cpp</code></td>
+                <td>Plugin entry point. Contains <code>MyDPSEngine</code> implementation:
+                combat state management, damage and heal recording, spawn ID resolution, DoT
+                cast tracking, MQMyChat integration, INI settings, and slash command
+                handling.</td>
+            </tr>
+            <tr>
+                <td><code>MQMyDPS.h</code></td>
+                <td><code>MyDPSEngine</code> class declaration. Defines the central engine
+                with battle tracking, active DoT registry, per-player heal targets, pet
+                and non-melee counters, and spawn resolution methods. Declares
+                <code>IsMyChatLoaded()</code> and <code>SendToMyChat()</code>.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSData.h</code></td>
+                <td>Core data structures: <code>DamageType</code> enum (includes
+                <code>DirectHeal</code>), <code>DamageRecord</code>,
+                <code>TargetDamageData</code>, <code>HealTargetData</code>,
+                <code>ActiveDoT</code>, <code>BattleData</code> (with
+                <code>healTargets</code> map), <code>MyDPSSettings</code> (with full
+                color table including heal and target colors), and helper functions
+                <code>DamageTypeToString()</code> and <code>DamageTypeToColorKey()</code>.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSParser.cpp</code></td>
+                <td>Chat line parser. 14 <code>TryParse*</code> methods using
+                <code>string_view::find()</code> for fast pattern matching against
+                all EQ combat and heal message formats. Includes
+                <code>TryParseDirectHeal</code> which handles both the basic and
+                spell-name formats.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSParser.h</code></td>
+                <td><code>MyDPSParser</code> class declaration with character and pet
+                name configuration. Declares all 14 <code>TryParse*</code> methods.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSRenderer.cpp</code></td>
+                <td>ImGui rendering. Combat spam overlay (newest-at-top, click-through
+                support), main window with 5 tabs (Current Battle, History, Targets,
+                Healing, Graphs), data-driven config window, font scaling on all windows,
+                ImPlot charts. Color lookup uses the <code>auto C = [&amp;](key) -&gt;
+                ImVec4</code> lambda pattern throughout.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSRenderer.h</code></td>
+                <td><code>MyDPSRenderer</code> class declaration. Public render methods
+                plus private per-tab helpers including <code>RenderHealing()</code>.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSTLO.cpp</code></td>
+                <td>TLO implementation. Exposes DPS data via <code>${MyDPS}</code>
+                top-level object with target lookup by spawn ID or name.</td>
+            </tr>
+            <tr>
+                <td><code>MyDPSTLO.h</code></td>
+                <td><code>MyDPSType</code> and <code>MyDPSTargetType</code>
+                declarations with member/method enums.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Key Dependencies</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Dependency</th>
+                <th>What it provides</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>MQ2Main</strong></td>
+                <td>Plugin API, chat hooks, command registration, TLO framework,
+                character/spawn data access, <code>GetCombatState()</code>,
+                <code>ParseMacroData()</code> (used for MQMyChat integration),
+                <code>IsPluginLoaded()</code>.</td>
+            </tr>
+            <tr>
+                <td><strong>ImGui</strong></td>
+                <td>Immediate-mode GUI for all windows, tables, tabs, menu bars, buttons,
+                font scaling via <code>PushFont/PopFont</code>, and configuration panels.
+                Menu bar uses <code>MenuItem</code> for compact layout.</td>
+            </tr>
+            <tr>
+                <td><strong>ImPlot</strong></td>
+                <td>Plotting library built on ImGui. Used for DPS line graphs, damage
+                bar charts, and pie charts (both damage and healing distribution). Axes
+                are locked at minimum 0,0 to prevent negative-axis confusion.</td>
+            </tr>
+            <tr>
+                <td><strong>fmt</strong></td>
+                <td>Modern C++ formatting library for string construction and number
+                formatting. Also used to build MQMyChat message strings.</td>
+            </tr>
+            <tr>
+                <td><strong>eqlib</strong></td>
+                <td>EverQuest game structures. Provides <code>PlayerClient</code>,
+                <code>LaunchSpellData</code> (CastingData), <code>EQ_Spell</code>,
+                <code>ExtendedTargetSlot</code>, and spawn type constants.</td>
+            </tr>
+            <tr>
+                <td><strong>MQMyChat (optional)</strong></td>
+                <td>If loaded, receives battle summaries and reports via
+                <code>ParseMacroData("${MyChat.Send[MyDPS,message]}")</code>.
+                Not required &mdash; the plugin checks for it at settings load time
+                and gracefully skips all chat sends if it is absent.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>How to Build</h2>
+
+    <ol>
+        <li>Place the <code>MQMyDPS</code> folder under <code>plugins/</code> in your
+        MacroQuest source tree.</li>
+        <li>Add the <code>MQMyDPS.vcxproj</code> to the MacroQuest solution.</li>
+        <li>Build with the <strong>Win32</strong> (x86) platform configuration.</li>
+    </ol>
+
+    <div class="note">
+        <strong>Note:</strong> MQMyDPS has no external vcpkg dependencies beyond what
+        MacroQuest already provides (ImGui, ImPlot, fmt, eqlib). MQMyChat integration
+        is optional at runtime &mdash; it requires no build-time dependency on that plugin.
+    </div>
+
+    <h2>Quick Links</h2>
+
+    <div class="link-grid">
+        <a href="architecture.html">
+            <strong>Architecture</strong>
+            Engine, parser, renderer, data structures, and data flow between components.
+        </a>
+        <a href="lifecycle.html">
+            <strong>Plugin Lifecycle</strong>
+            Callbacks, combat state machine, battle finalization, and settings persistence.
+        </a>
+        <a href="parsing.html">
+            <strong>Chat Parsing</strong>
+            How combat and heal messages are matched and converted to DamageRecords.
+        </a>
+        <a href="spawn-tracking.html">
+            <strong>Spawn ID Tracking</strong>
+            Multi-strategy spawn resolution: pTarget, pet, DoT registry, XTarget.
+        </a>
+        <a href="rendering.html">
+            <strong>ImGui Rendering</strong>
+            Combat spam, 5-tab main window, color system, Healing tab, graphs, config.
+        </a>
+        <a href="commands-tlo.html">
+            <strong>Commands &amp; TLO</strong>
+            Slash commands and the ${MyDPS} top-level object.
+        </a>
+        <a href="mychat-integration.html">
+            <strong>MQMyChat Integration</strong>
+            How battle summaries and reports are sent to the MQMyChat plugin channel.
+        </a>
+    </div>
+
+    <div class="page-nav">
+        <strong>Next:</strong> <a href="architecture.html">Architecture</a> &mdash; how the
+        pieces fit together.
+    </div>
+</main>
+
+</body>
+</html>

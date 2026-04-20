@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQMyChat Integration - MQMyDPS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+    <h2><a href="index.html" style="color: inherit; text-decoration: none;">MQMyDPS Docs</a></h2>
+    <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Chat Parsing</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html" class="active">MQMyChat Integration</a></li>
+    </ul>
+</nav>
+
+<main class="content">
+    <h1>MQMyChat Integration</h1>
+
+    <p><em>Last Updated: 2026-04-20</em></p>
+
+    <h2>Overview</h2>
+
+    <p>MQMyDPS can optionally send battle summaries and session reports to
+    <strong>MQMyChat</strong>, a separate MacroQuest plugin that provides a custom
+    floating chat window with named channels. When MQMyChat is loaded alongside MQMyDPS,
+    all DPS output is automatically routed to a dedicated "MyDPS" channel in MQMyChat,
+    keeping your regular EQ chat windows clean while still capturing structured combat data.</p>
+
+    <p>This integration is completely optional. MQMyDPS checks for MQMyChat at login time
+    and gracefully does nothing if it is absent. There is no build-time dependency and no
+    errors if MQMyChat is not present.</p>
+
+    <h2>How Detection Works</h2>
+
+    <p>The MQMyChat availability check happens in <code>LoadCharacterSettings()</code>,
+    which is called each time you enter the game world
+    (<code>SetGameState(GAMESTATE_INGAME)</code>). It calls MacroQuest's
+    <code>IsPluginLoaded("MQMyChat")</code> function and stores the result in a private
+    member variable:</p>
+
+    <pre><code>m_myChatLoaded = IsPluginLoaded("MQMyChat");</code></pre>
+
+    <p>This cached flag is what every subsequent call to <code>SendToMyChat()</code> checks
+    before attempting to send anything. The value is refreshed each time the character
+    settings are loaded &mdash; which means if you load MQMyChat after logging in, you can
+    reload settings (via the Save/Load buttons in the config window) to pick it up without
+    relogging.</p>
+
+    <p>You can check the status at any time by reading the result of
+    <code>IsMyChatLoaded()</code>, which simply returns <code>m_myChatLoaded</code>.</p>
+
+    <h2>How Sending Works</h2>
+
+    <p>The <code>SendToMyChat()</code> method constructs a MQMyChat send expression and
+    evaluates it using <code>ParseMacroData()</code>:</p>
+
+    <pre><code>void MyDPSEngine::SendToMyChat(const std::string&amp; message)
+{
+    if (!m_myChatLoaded)
+        return;
+
+    char szBuffer[MAX_STRING] = {};
+    sprintf_s(szBuffer, "${MyChat.Send[MyDPS,%s]}", message.c_str());
+    ParseMacroData(szBuffer, MAX_STRING);
+}</code></pre>
+
+    <p>Breaking this down step by step:</p>
+
+    <ol>
+        <li>If MQMyChat is not loaded, return immediately. No work is done.</li>
+        <li>Build a string that looks like a MacroQuest TLO expression:
+        <code>${MyChat.Send[MyDPS,&lt;message text&gt;]}</code>.</li>
+        <li>Call <code>ParseMacroData(szBuffer, MAX_STRING)</code>. This is the standard
+        MQ2 function that evaluates TLO expressions in-place, substituting the result
+        back into the buffer. By calling it on the <code>${MyChat.Send[...]}</code>
+        expression, we are invoking MQMyChat's <code>Send</code> method with
+        <code>MyDPS</code> as the channel name and the message as the content.</li>
+        <li>MQMyChat receives the call, auto-creates the "MyDPS" channel if it does not
+        exist, and appends the message to that channel's display.</li>
+    </ol>
+
+    <div class="note">
+        <strong>What is ParseMacroData?</strong> <code>ParseMacroData(buffer, size)</code>
+        is a MacroQuest core function that takes a string containing <code>${}</code>
+        expressions, evaluates each TLO reference, and replaces the expression text with
+        the result. It is normally used internally by the macro engine, but plugins can
+        call it directly to invoke TLO side-effect methods like <code>MyChat.Send</code>.
+        This is the canonical pattern for one plugin to call another plugin's TLO methods
+        at runtime without a compile-time dependency.
+    </div>
+
+    <h2>MQ Color Codes</h2>
+
+    <p>All messages sent to MQMyChat use MacroQuest color codes embedded in the message
+    string. These are two-character sequences starting with a backslash that MQ2 chat
+    windows interpret as color changes. MQMyDPS uses the following codes in its messages:</p>
+
+    <table>
+        <thead><tr><th>Code</th><th>Color</th><th>Used for</th></tr></thead>
+        <tbody>
+            <tr><td><code>\at</code></td><td>Teal</td><td>Plugin name prefix <code>[MQMyDPS]</code>, battle label</td></tr>
+            <tr><td><code>\ay</code></td><td>Yellow</td><td>DPS values</td></tr>
+            <tr><td><code>\ag</code></td><td>Green</td><td>Total damage amounts</td></tr>
+            <tr><td><code>\aw</code></td><td>White</td><td>Battle numbers, hit counts, duration, heal counts</td></tr>
+            <tr><td><code>\ar</code></td><td>Red</td><td>Damage target names (in per-target lines)</td></tr>
+            <tr><td><code>\ao</code></td><td>Orange</td><td>"Healed" label in per-heal-target lines</td></tr>
+            <tr><td><code>\ap</code></td><td>Purple</td><td>Spawn ID numbers in target labels</td></tr>
+            <tr><td><code>\ax</code></td><td>Default</td><td>Reset to default color after a colored segment</td></tr>
+        </tbody>
+    </table>
+
+    <p>The <code>\ax</code> code resets the color to the default chat text color. It is
+    placed after every colored segment to ensure subsequent text returns to normal. Without
+    it, the color would bleed into the next line.</p>
+
+    <h2>What Gets Sent and When</h2>
+
+    <h3>On /mydps report</h3>
+
+    <p>When the user runs <code>/mydps report</code>, the command handler builds a message
+    and sends it to both EQ chat and MQMyChat:</p>
+
+    <pre><code>std::string report = fmt::format(
+    "\at[MQMyDPS]\ax Session DPS: \ay{:.1f}\ax | Total: \ag{}\ax | Hits: \aw{}\ax",
+    dps, FormatNumber(g_dpsEngine->sessionDamage), g_dpsEngine->sessionHitCount);
+WriteChatf("%s", report.c_str());        // EQ chat
+g_dpsEngine->SendToMyChat(report);       // MQMyChat</code></pre>
+
+    <p>Example output in MQMyChat:</p>
+    <pre><code>[MQMyDPS] Session DPS: 1245.3 | Total: 4.2m | Hits: 3381</code></pre>
+    <p>(With teal, yellow, green, and white coloring on the respective segments.)</p>
+
+    <h3>On Battle Finalization</h3>
+
+    <p>When <code>FinalizeBattle()</code> is called (after the battle end delay expires),
+    MQMyDPS sends a multi-line summary to MQMyChat. The first line is the battle overview,
+    followed by one line per damage target, followed by one line per heal target.</p>
+
+    <p><strong>Battle overview line:</strong></p>
+    <pre><code>\at[MQMyDPS]\ax Battle \aw#1\ax ended: DPS \ay1245.3\ax | Dmg \ag4.2m\ax | Hits \aw3381\ax | Dur \aw45s\ax</code></pre>
+
+    <p><strong>Per damage-target lines</strong> (one per entry in <code>battle.targets</code>):</p>
+    <pre><code>  \ara skeleton (\ap#1234\ax)\ax - DPS \ay892.1\ax | Dmg \ag40.1k\ax | Hits \aw45\ax</code></pre>
+
+    <p>The spawn ID is shown in purple and only appears when the spawn ID is positive (a real
+    resolved ID). Synthetic negative IDs are not shown.</p>
+
+    <p><strong>Per heal-target lines</strong> (one per entry in <code>battle.healTargets</code>):</p>
+    <pre><code>  \aoHealed\ax \atGrimmier\ax - \ag12.5k\ax (\aw8\ax heals)</code></pre>
+
+    <p>These lines are sent inside the loop over <code>battle.healTargets</code>. They appear
+    in MQMyChat only if at least one heal was recorded for the battle.</p>
+
+    <h2>The "MyDPS" Channel</h2>
+
+    <p>The channel name passed to <code>MyChat.Send</code> is always the literal string
+    <code>MyDPS</code>. MQMyChat auto-creates this channel the first time a message is sent
+    to it, so there is no setup required by the user. The channel persists in MQMyChat as
+    long as MQMyChat is loaded.</p>
+
+    <p>Because all output goes to a dedicated channel rather than the general EQ chat window,
+    you can configure MQMyChat to display the "MyDPS" channel in a separate floating window
+    positioned wherever is convenient (e.g., near your hotbars or in a corner of the screen)
+    without cluttering your regular chat tabs.</p>
+
+    <h2>No Output If MQMyChat Is Not Loaded</h2>
+
+    <p>Every code path that calls <code>SendToMyChat()</code> is guarded by the
+    <code>m_myChatLoaded</code> check inside the method itself. If MQMyChat is absent:</p>
+
+    <ul>
+        <li>Battle finalization still works normally and saves data to history.</li>
+        <li><code>/mydps report</code> still prints to EQ chat as usual.</li>
+        <li>No error messages are generated.</li>
+        <li>No performance cost is incurred beyond the single boolean check.</li>
+    </ul>
+
+    <h2>Refreshing the MQMyChat Status</h2>
+
+    <p>If you load MQMyChat after you have already logged in, MQMyDPS will not
+    automatically detect it because the <code>m_myChatLoaded</code> flag is only set
+    during <code>LoadCharacterSettings()</code>. To refresh it without relogging:</p>
+
+    <ul>
+        <li>Open the config window with <code>/mydps config</code>.</li>
+        <li>Click the <strong>Load</strong> button. This calls
+        <code>LoadCharacterSettings()</code> again, which re-checks
+        <code>IsPluginLoaded("MQMyChat")</code> and updates the cached flag.</li>
+    </ul>
+
+    <h2>Beginner Note: Inter-Plugin Communication in MQ2</h2>
+
+    <p>MQMyDPS's approach of calling <code>ParseMacroData("${MyChat.Send[...]}")</code>
+    is the standard pattern for one plugin to invoke another plugin's functionality without
+    a compile-time dependency. Here is why this works:</p>
+
+    <ul>
+        <li>MacroQuest's TLO system is a runtime registry. When MQMyChat loads, it calls
+        <code>AddTopLevelObject("MyChat", ...)</code>, making <code>${MyChat}</code>
+        available to the macro engine.</li>
+        <li><code>ParseMacroData</code> is the same function the macro engine uses when
+        it encounters <code>${...}</code> in a macro line. Calling it directly from C++
+        code in another plugin is exactly the same as having a macro script evaluate
+        <code>${MyChat.Send[MyDPS,hello]}</code>.</li>
+        <li>MQMyDPS does not need to <code>#include</code> any MQMyChat header or link
+        against MQMyChat's DLL. The entire integration happens through the string-based
+        TLO dispatch. If MQMyChat is not loaded, the <code>${MyChat}</code> TLO simply
+        does not exist and <code>IsPluginLoaded</code> returns false, so the code path
+        is never reached.</li>
+    </ul>
+
+    <p>This pattern is broadly useful for any plugin that wants to optionally integrate
+    with another without creating a hard dependency. The same approach could be used to
+    call any other plugin's TLO methods at runtime.</p>
+
+    <div class="page-nav">
+        <strong>Previous:</strong> <a href="commands-tlo.html">Commands &amp; TLO</a>
+    </div>
+</main>
+
+</body>
+</html>
