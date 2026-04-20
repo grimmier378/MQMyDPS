@@ -1,5 +1,6 @@
 #include "MyDPSRenderer.h"
 #include "MQMyDPS.h"
+#include "Theme.h"
 
 #include <imgui/fonts/IconsMaterialDesign.h>
 #include <imgui/implot/implot.h>
@@ -20,6 +21,8 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 {
 	if (!engine.showCombatSpam || !engine.tracking)
 		return;
+
+	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
 
 	auto windowName = fmt::format("Combat Spam##{}", engine.charName);
 
@@ -73,6 +76,7 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 		ImGui::PopFont();
 	}
 	ImGui::End();
+	ImGuiTheme::ResetTheme(oldStyle);
 
 	if (wasOpen && !engine.showCombatSpam)
 		engine.SaveCharacterSettings();
@@ -82,6 +86,8 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 {
 	if (!engine.showMainWindow)
 		return;
+
+	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
 
 	auto windowName = fmt::format("DPS Report##{}", engine.charName);
 
@@ -131,31 +137,43 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 		{
 			if (ImGui::BeginTabItem("Current Battle"))
 			{
-				RenderCurrentBattle(engine);
+				if (ImGui::BeginChild("##BattleChild", ImVec2(0, 0), ImGuiChildFlags_None))
+					RenderCurrentBattle(engine);
+				ImGui::EndChild();
 				ImGui::EndTabItem();
 			}
 
 			if (ImGui::BeginTabItem("History"))
 			{
-				RenderHistory(engine);
+				if (ImGui::BeginChild("##HistoryChild", ImVec2(0, 0), ImGuiChildFlags_None))
+					RenderHistory(engine);
+				ImGui::EndChild();
 				ImGui::EndTabItem();
 			}
 
 			if (ImGui::BeginTabItem("Targets"))
 			{
-				RenderTargets(engine);
+				if (ImGui::BeginChild("##TargetsChild", ImVec2(0, 0), ImGuiChildFlags_None))
+					RenderTargets(engine);
+				ImGui::EndChild();
 				ImGui::EndTabItem();
 			}
 
 			if (ImGui::BeginTabItem("Healing"))
 			{
-				RenderHealing(engine);
+				if (ImGui::BeginChild("##HealingChild", ImVec2(0, 0), ImGuiChildFlags_None))
+					RenderHealing(engine);
+				ImGui::EndChild();
 				ImGui::EndTabItem();
 			}
 
 			if (ImGui::BeginTabItem("Graphs"))
 			{
-				RenderGraphs(engine);
+				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, ImGui::GetStyle().WindowPadding.y));
+				if (ImGui::BeginChild("##GraphsChild", ImVec2(0, 0), ImGuiChildFlags_Borders))
+					RenderGraphs(engine);
+				ImGui::EndChild();
+				ImGui::PopStyleVar();
 				ImGui::EndTabItem();
 			}
 
@@ -165,6 +183,7 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 		ImGui::PopFont();
 	}
 	ImGui::End();
+	ImGuiTheme::ResetTheme(oldStyle);
 
 	if (wasOpen && !engine.showMainWindow)
 		engine.SaveCharacterSettings();
@@ -443,59 +462,10 @@ void MyDPSRenderer::RenderTargets(MyDPSEngine& engine)
 		}
 	}
 
-	if (!engine.battleHistory.empty())
+	if (!engine.sortedSessionTargets.empty())
 	{
 		ImGui::Separator();
 		ImGui::Text("All Session Targets:");
-
-		std::unordered_map<int, TargetDamageData> allTargets;
-		for (const auto& battle : engine.battleHistory)
-		{
-			for (const auto& [id, data] : battle.targets)
-			{
-				auto& agg = allTargets[id];
-				if (agg.name.empty())
-				{
-					agg.name = data.name;
-					agg.spawnID = data.spawnID;
-				}
-				agg.totalDamage += data.totalDamage;
-				agg.critDamage += data.critDamage;
-				agg.dotDamage += data.dotDamage;
-				agg.dsDamage += data.dsDamage;
-				agg.petDamage += data.petDamage;
-				agg.nonMeleeDamage += data.nonMeleeDamage;
-				agg.hitCount += data.hitCount;
-				agg.missCount += data.missCount;
-			}
-		}
-
-		for (const auto& [id, data] : engine.currentTargets)
-		{
-			auto& agg = allTargets[id];
-			if (agg.name.empty())
-			{
-				agg.name = data.name;
-				agg.spawnID = data.spawnID;
-			}
-			agg.totalDamage += data.totalDamage;
-			agg.critDamage += data.critDamage;
-			agg.dotDamage += data.dotDamage;
-			agg.dsDamage += data.dsDamage;
-			agg.petDamage += data.petDamage;
-			agg.nonMeleeDamage += data.nonMeleeDamage;
-			agg.hitCount += data.hitCount;
-			agg.missCount += data.missCount;
-		}
-
-		struct AggEntry { int id; const TargetDamageData* data; };
-		std::vector<AggEntry> sorted;
-		sorted.reserve(allTargets.size());
-		for (const auto& [id, data] : allTargets)
-			sorted.push_back({ id, &data });
-		std::sort(sorted.begin(), sorted.end(), [](const AggEntry& a, const AggEntry& b) {
-			return a.data->totalDamage > b.data->totalDamage;
-		});
 
 		if (ImGui::BeginTable("AllTargets", 4,
 			ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY))
@@ -506,17 +476,17 @@ void MyDPSRenderer::RenderTargets(MyDPSEngine& engine)
 			ImGui::TableSetupColumn("Total");
 			ImGui::TableHeadersRow();
 
-			for (const auto& entry : sorted)
+			for (const auto& data : engine.sortedSessionTargets)
 			{
-				std::string label = entry.data->spawnID > 0
-					? fmt::format("{} (#{})", entry.data->name, entry.data->spawnID)
-					: entry.data->name;
+				std::string label = data.spawnID > 0
+					? fmt::format("{} (#{})", data.name, data.spawnID)
+					: data.name;
 
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn(); ImGui::Text("%s", label.c_str());
-				ImGui::TableNextColumn(); ImGui::Text("%d", entry.data->hitCount);
-				ImGui::TableNextColumn(); ImGui::Text("%.0f", entry.data->GetAvgDamage());
-				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(entry.data->totalDamage).c_str());
+				ImGui::TableNextColumn(); ImGui::Text("%d", data.hitCount);
+				ImGui::TableNextColumn(); ImGui::Text("%.0f", data.GetAvgDamage());
+				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(data.totalDamage).c_str());
 			}
 
 			ImGui::EndTable();
@@ -578,27 +548,36 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
 	};
 
-	std::vector<float> nums(count), dps(count);
-	std::vector<float> melee(count), dd(count), dots(count), pets(count);
-	std::vector<float> crits(count), heals(count), critHeals(count);
-
-	for (int i = 0; i < count; i++)
+	if (m_cachedBattleCount != totalBattles || m_cachedGraphOffset != m_graphOffset)
 	{
-		const auto& b = engine.battleHistory[startIdx + i];
-		nums[i]      = static_cast<float>(b.battleNumber);
-		dps[i]       = b.dps;
-		crits[i]     = static_cast<float>(b.critDamage);
-		dots[i]      = static_cast<float>(b.dotDamage);
-		pets[i]      = static_cast<float>(b.petDamage);
-		dd[i]        = static_cast<float>(b.nonMeleeDamage);
-		heals[i]     = static_cast<float>(b.directHeals);
-		critHeals[i] = static_cast<float>(b.critHeals);
-		melee[i]     = static_cast<float>(b.totalDamage) - crits[i] - dots[i] - dd[i] - pets[i];
-		if (melee[i] < 0) melee[i] = 0;
+		m_cachedBattleCount = totalBattles;
+		m_cachedGraphOffset = m_graphOffset;
+		m_gStartIdx = startIdx;
+		m_gCount = count;
+
+		auto resize = [&](std::vector<float>& v) { v.resize(count); };
+		resize(m_gNums); resize(m_gDps); resize(m_gMelee); resize(m_gDD);
+		resize(m_gDots); resize(m_gPets); resize(m_gCrits); resize(m_gHeals);
+		resize(m_gCritHeals);
+
+		for (int i = 0; i < count; i++)
+		{
+			const auto& b = engine.battleHistory[startIdx + i];
+			m_gNums[i]      = static_cast<float>(b.battleNumber);
+			m_gDps[i]       = b.dps;
+			m_gCrits[i]     = static_cast<float>(b.critDamage);
+			m_gDots[i]      = static_cast<float>(b.dotDamage);
+			m_gPets[i]      = static_cast<float>(b.petDamage);
+			m_gDD[i]        = static_cast<float>(b.nonMeleeDamage);
+			m_gHeals[i]     = static_cast<float>(b.directHeals);
+			m_gCritHeals[i] = static_cast<float>(b.critHeals);
+			m_gMelee[i]     = static_cast<float>(b.totalDamage) - m_gCrits[i] - m_gDots[i] - m_gDD[i] - m_gPets[i];
+			if (m_gMelee[i] < 0) m_gMelee[i] = 0;
+		}
 	}
 
-	float xMin = count > 0 ? nums[0] - 0.5f : 0;
-	float xMax = count > 0 ? nums[count - 1] + 1.5f : 1;
+	float xMin = m_gCount > 0 ? m_gNums[0] - 0.5f : 0;
+	float xMax = m_gCount > 0 ? m_gNums[m_gCount - 1] + 1.5f : 1;
 
 	if (m_showLineGraph)
 	{
@@ -609,7 +588,7 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
 
 			ImPlot::SetNextLineStyle(C("dps"), 2.0f);
-			ImPlot::PlotLine("DPS", nums.data(), dps.data(), count);
+			ImPlot::PlotLine("DPS", m_gNums.data(), m_gDps.data(), m_gCount);
 
 			ImPlot::EndPlot();
 		}
@@ -630,23 +609,23 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 
 			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y1);
 			ImPlot::SetNextLineStyle(C("hit"), 2.0f);
-			ImPlot::PlotLine("Melee", nums.data(), melee.data(), count);
+			ImPlot::PlotLine("Melee", m_gNums.data(), m_gMelee.data(), m_gCount);
 			ImPlot::SetNextLineStyle(C("non-melee"), 1.5f);
-			ImPlot::PlotLine("DD", nums.data(), dd.data(), count);
+			ImPlot::PlotLine("DD", m_gNums.data(), m_gDD.data(), m_gCount);
 			ImPlot::SetNextLineStyle(C("dot"), 1.5f);
-			ImPlot::PlotLine("DoT", nums.data(), dots.data(), count);
+			ImPlot::PlotLine("DoT", m_gNums.data(), m_gDots.data(), m_gCount);
 			ImPlot::SetNextLineStyle(C("pet"), 1.5f);
-			ImPlot::PlotLine("Pet", nums.data(), pets.data(), count);
+			ImPlot::PlotLine("Pet", m_gNums.data(), m_gPets.data(), m_gCount);
 
 			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y2);
 			ImPlot::SetNextLineStyle(C("crit"), 1.5f);
-			ImPlot::PlotLine("Crit", nums.data(), crits.data(), count);
+			ImPlot::PlotLine("Crit", m_gNums.data(), m_gCrits.data(), m_gCount);
 
 			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y3);
 			ImPlot::SetNextLineStyle(C("heal"), 1.5f);
-			ImPlot::PlotLine("Heals", nums.data(), heals.data(), count);
+			ImPlot::PlotLine("Heals", m_gNums.data(), m_gHeals.data(), m_gCount);
 			ImPlot::SetNextLineStyle(C("critHeals"), 1.5f);
-			ImPlot::PlotLine("Crit Heals", nums.data(), critHeals.data(), count);
+			ImPlot::PlotLine("Crit Heals", m_gNums.data(), m_gCritHeals.data(), m_gCount);
 
 			ImPlot::EndPlot();
 		}
@@ -668,23 +647,23 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 
 			struct BarSeries { const char* label; const char* colorKey; std::vector<float>* data; };
 			BarSeries series[] = {
-				{ "Melee",      "hit",       &melee },
-				{ "DD",         "non-melee", &dd },
-				{ "DoT",        "dot",       &dots },
-				{ "Pet",        "pet",       &pets },
-				{ "Crit",       "crit",      &crits },
-				{ "Heals",      "heal",      &heals },
-				{ "Crit Heals", "critHeals", &critHeals },
+				{ "Melee",      "hit",       &m_gMelee },
+				{ "DD",         "non-melee", &m_gDD },
+				{ "DoT",        "dot",       &m_gDots },
+				{ "Pet",        "pet",       &m_gPets },
+				{ "Crit",       "crit",      &m_gCrits },
+				{ "Heals",      "heal",      &m_gHeals },
+				{ "Crit Heals", "critHeals", &m_gCritHeals },
 			};
 
 			for (int s = 0; s < numSeries; s++)
 			{
-				std::vector<float> shifted(count);
-				for (int i = 0; i < count; i++)
-					shifted[i] = nums[i] + startOff + s * barWidth;
+				std::vector<float> shifted(m_gCount);
+				for (int i = 0; i < m_gCount; i++)
+					shifted[i] = m_gNums[i] + startOff + s * barWidth;
 
 				ImPlot::SetNextFillStyle(C(series[s].colorKey));
-				ImPlot::PlotBars(series[s].label, shifted.data(), series[s].data->data(), count, barWidth * 0.9f);
+				ImPlot::PlotBars(series[s].label, shifted.data(), series[s].data->data(), m_gCount, barWidth * 0.9f);
 			}
 
 			ImPlot::EndPlot();
@@ -694,38 +673,20 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 
 void MyDPSRenderer::RenderPieChart(MyDPSEngine& engine)
 {
-	std::unordered_map<std::string, int64_t> targetTotals;
-
-	for (const auto& battle : engine.battleHistory)
-		for (const auto& [id, data] : battle.targets)
-			targetTotals[data.name] += data.totalDamage;
-
-	for (const auto& [id, data] : engine.currentTargets)
-		targetTotals[data.name] += data.totalDamage;
-
-	if (targetTotals.empty())
+	if (engine.sortedSessionTargets.empty())
 	{
 		ImGui::TextDisabled("No target data for pie chart.");
 		return;
 	}
 
-	struct PieEntry { std::string name; double value; };
-	std::vector<PieEntry> entries;
-	entries.reserve(targetTotals.size());
-	for (const auto& [name, total] : targetTotals)
-		entries.push_back({ name, static_cast<double>(total) });
-	std::sort(entries.begin(), entries.end(), [](const PieEntry& a, const PieEntry& b) {
-		return a.value > b.value;
-	});
-
 	std::vector<const char*> labels;
 	std::vector<double> values;
-	labels.reserve(entries.size());
-	values.reserve(entries.size());
-	for (const auto& e : entries)
+	labels.reserve(engine.sortedSessionTargets.size());
+	values.reserve(engine.sortedSessionTargets.size());
+	for (const auto& data : engine.sortedSessionTargets)
 	{
-		labels.push_back(e.name.c_str());
-		values.push_back(e.value);
+		labels.push_back(data.name.c_str());
+		values.push_back(static_cast<double>(data.totalDamage));
 	}
 
 	ImGui::Text("Damage Distribution by Target");
@@ -741,45 +702,11 @@ void MyDPSRenderer::RenderPieChart(MyDPSEngine& engine)
 
 void MyDPSRenderer::RenderHealing(MyDPSEngine& engine)
 {
-	std::unordered_map<std::string, HealTargetData> allHeals;
-
-	for (const auto& battle : engine.battleHistory)
-	{
-		for (const auto& [name, ht] : battle.healTargets)
-		{
-			auto& agg = allHeals[name];
-			if (agg.name.empty())
-				agg.name = ht.name;
-			agg.directHeals += ht.directHeals;
-			agg.critHeals += ht.critHeals;
-			agg.healCount += ht.healCount;
-		}
-	}
-
-	for (const auto& [name, ht] : engine.currentHealTargets)
-	{
-		auto& agg = allHeals[name];
-		if (agg.name.empty())
-			agg.name = ht.name;
-		agg.directHeals += ht.directHeals;
-		agg.critHeals += ht.critHeals;
-		agg.healCount += ht.healCount;
-	}
-
-	if (allHeals.empty())
+	if (engine.sortedSessionHeals.empty())
 	{
 		ImGui::TextDisabled("No healing data yet.");
 		return;
 	}
-
-	struct HealEntry { std::string name; const HealTargetData* data; };
-	std::vector<HealEntry> sorted;
-	sorted.reserve(allHeals.size());
-	for (const auto& [name, data] : allHeals)
-		sorted.push_back({ name, &data });
-	std::sort(sorted.begin(), sorted.end(), [](const HealEntry& a, const HealEntry& b) {
-		return a.data->GetTotalHeals() > b.data->GetTotalHeals();
-	});
 
 	if (ImGui::BeginTable("HealTargets", 5,
 		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
@@ -792,14 +719,14 @@ void MyDPSRenderer::RenderHealing(MyDPSEngine& engine)
 		ImGui::TableSetupColumn("Total");
 		ImGui::TableHeadersRow();
 
-		for (const auto& entry : sorted)
+		for (const auto& data : engine.sortedSessionHeals)
 		{
 			ImGui::TableNextRow();
-			ImGui::TableNextColumn(); ImGui::Text("%s", entry.name.c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(entry.data->directHeals).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(entry.data->critHeals).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%d", entry.data->healCount);
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(entry.data->GetTotalHeals()).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", data.name.c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(data.directHeals).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(data.critHeals).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%d", data.healCount);
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(data.GetTotalHeals()).c_str());
 		}
 
 		ImGui::EndTable();
@@ -810,12 +737,12 @@ void MyDPSRenderer::RenderHealing(MyDPSEngine& engine)
 
 	std::vector<const char*> labels;
 	std::vector<double> values;
-	labels.reserve(sorted.size());
-	values.reserve(sorted.size());
-	for (const auto& e : sorted)
+	labels.reserve(engine.sortedSessionHeals.size());
+	values.reserve(engine.sortedSessionHeals.size());
+	for (const auto& data : engine.sortedSessionHeals)
 	{
-		labels.push_back(e.name.c_str());
-		values.push_back(static_cast<double>(e.data->GetTotalHeals()));
+		labels.push_back(data.name.c_str());
+		values.push_back(static_cast<double>(data.GetTotalHeals()));
 	}
 
 	if (ImPlot::BeginPlot("##HealPie", ImVec2(-1, 350), ImPlotFlags_Equal))
@@ -832,8 +759,10 @@ void MyDPSRenderer::RenderConfigWindow(MyDPSEngine& engine)
 	if (!engine.showConfigWindow)
 		return;
 
+	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
+
 	auto windowName = fmt::format("DPS Config##{}", engine.charName);
-	ImGui::SetNextWindowSize(ImVec2(350, 450), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(350, 350), ImGuiCond_FirstUseEver);
 
 	bool wasOpen = engine.showConfigWindow;
 	if (ImGui::Begin(windowName.c_str(), &engine.showConfigWindow))
@@ -844,6 +773,7 @@ void MyDPSRenderer::RenderConfigWindow(MyDPSEngine& engine)
 	}
 
 	ImGui::End();
+	ImGuiTheme::ResetTheme(oldStyle);
 
 	if (wasOpen && !engine.showConfigWindow)
 		engine.SaveCharacterSettings();
@@ -865,139 +795,137 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 	ImGui::Separator();
 
 	struct BoolEntry { const char* label; bool* value; };
-	struct IntEntry  { const char* label; int* value; int min; int max; };
-	struct FloatEntry{ const char* label; float* value; float min; float max; };
 
-	BoolEntry bools[] = {
-		{ "Show Type",         &s.showType },
-		{ "Show Target",       &s.showTarget },
-		{ "Show My Misses",    &s.showMyMisses },
-		{ "Show Missed Me",    &s.showMissMe },
-		{ "Show Hit Me",       &s.showHitMe },
-		{ "Show Crit Heals",   &s.showCritHeals },
-		{ "Show Damage Shield",&s.showDS },
-		{ "Track Pet",         &s.addPet },
-		{ "Show Combat Spam",  &engine.showCombatSpam },
-		{ "Sort Newest First", &s.sortNewest },
-		{ "Auto Start",        &s.autoStart },
-		{ "Lock Spam Window",  &s.spamClickThrough },
-	};
-
-	IntEntry ints[] = {
-		{ "Display Time (s)",     &s.displayTime,    1, 60 },
-		{ "Battle End Delay (s)", &s.battleEndDelay,  1, 30 },
-	};
-
-	FloatEntry floats[] = {
-		{ "Font Scale",      &s.fontScale,     0.5f, 2.0f },
-		{ "Spam Font Scale", &s.spamFontScale, 0.5f, 2.0f },
-	};
-
-	int sizeX = static_cast<int>(ImGui::GetWindowWidth());
-
-	if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen))
+	if (ImGui::BeginTabBar("ConfigTabs"))
 	{
-		int col = std::max(1, sizeX / 165);
-		if (ImGui::BeginTable("Display Toggles", col))
+		if (ImGui::BeginTabItem("Display"))
 		{
-			ImGui::TableNextRow();
-			for (auto& [label, val] : bools)
+			if (ImGui::BeginChild("##DisplayChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
-				ImGui::TableNextColumn();
-				ImGui::Checkbox(label, val);
-			}
-			ImGui::EndTable();
-		}
-	}
-	ImGui::Spacing();
+				int sizeX = static_cast<int>(ImGui::GetWindowWidth());
 
-	if (ImGui::CollapsingHeader("Timing", ImGuiTreeNodeFlags_DefaultOpen))
-	{
-		int col = std::max(1, sizeX / 220);
-		if (ImGui::BeginTable("Timing Sliders", col))
-		{
-			ImGui::TableNextRow();
-			for (auto& [label, val, lo, hi] : ints)
-			{
-				ImGui::TableNextColumn();
+				BoolEntry bools[] = {
+					{ "Show Type",         &s.showType },
+					{ "Show Target",       &s.showTarget },
+					{ "Show My Misses",    &s.showMyMisses },
+					{ "Show Missed Me",    &s.showMissMe },
+					{ "Show Hit Me",       &s.showHitMe },
+					{ "Show Crit Heals",   &s.showCritHeals },
+					{ "Show Damage Shield",&s.showDS },
+					{ "Track Pet",         &s.addPet },
+					{ "Show Combat Spam",  &engine.showCombatSpam },
+					{ "Sort Newest First", &s.sortNewest },
+					{ "Auto Start",        &s.autoStart },
+					{ "Lock Spam Window",  &s.spamClickThrough },
+				};
+
+				int col = std::max(1, sizeX / 165);
+				if (ImGui::BeginTable("Display Toggles", col))
+				{
+					ImGui::TableNextRow();
+					for (auto& [label, val] : bools)
+					{
+						ImGui::TableNextColumn();
+						ImGui::Checkbox(label, val);
+					}
+					ImGui::EndTable();
+				}
+
+				ImGui::Spacing();
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderInt(label, val, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
-			}
-			ImGui::EndTable();
-		}
-	}
-	ImGui::Spacing();
-
-	if (ImGui::CollapsingHeader("Scale", ImGuiTreeNodeFlags_DefaultOpen))
-	{
-		int col = std::max(1, sizeX / 220);
-		if (ImGui::BeginTable("Font Scaling", col))
-		{
-			ImGui::TableNextRow();
-			for (auto& [label, val, lo, hi] : floats)
-			{
-				ImGui::TableNextColumn();
+				ImGui::SliderInt("Display Time (s)", &s.displayTime, 1, 60, "%d", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat(label, val, lo, hi, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SliderInt("Battle End Delay (s)", &s.battleEndDelay, 1, 30, "%d", ImGuiSliderFlags_AlwaysClamp);
+
+				ImGui::Spacing();
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Font Scale", &s.fontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Spam Font Scale", &s.spamFontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 			}
-			ImGui::EndTable();
+			ImGui::EndChild();
+			ImGui::EndTabItem();
 		}
-	}
-	ImGui::Spacing();
 
-	if (ImGui::CollapsingHeader("Colors", ImGuiTreeNodeFlags_DefaultOpen))
-	{
-		ImGui::ColorEdit4("Background", &s.bgColor.x, ImGuiColorEditFlags_NoInputs);
-
-		int col = std::max(1, sizeX / 150);
-		if (ImGui::BeginTable("Damage Colors", col))
+		if (ImGui::BeginTabItem("Colors"))
 		{
-			ImGui::TableNextRow();
-			for (auto& [name, color] : s.damageColors)
+			if (ImGui::BeginChild("##ColorsChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
-				ImGui::TableNextColumn();
-				ImGui::ColorEdit4(name.c_str(), &color.x, ImGuiColorEditFlags_NoInputs);
+				int sizeX = static_cast<int>(ImGui::GetWindowWidth());
+
+				ImGui::ColorEdit4("Background", &s.bgColor.x, ImGuiColorEditFlags_NoInputs);
+
+				int col = std::max(1, sizeX / 150);
+				if (ImGui::BeginTable("Damage Colors", col))
+				{
+					ImGui::TableNextRow();
+					for (auto& [name, color] : s.damageColors)
+					{
+						ImGui::TableNextColumn();
+						ImGui::ColorEdit4(name.c_str(), &color.x, ImGuiColorEditFlags_NoInputs);
+					}
+					ImGui::EndTable();
+				}
 			}
-			ImGui::EndTable();
+			ImGui::EndChild();
+			ImGui::EndTabItem();
 		}
-	}
-	ImGui::Spacing();
 
-	if (ImGui::CollapsingHeader("Floating Combat Text"))
-	{
-		ImGui::Checkbox("Enable FCT", &s.showFCT);
-
-		BoolEntry fctBools[] = {
-			{ "Melee",      &s.showFCT_Melee },
-			{ "DD",         &s.showFCT_DD },
-			{ "DoT",        &s.showFCT_DoT },
-			{ "Pet",        &s.showFCT_Pet },
-			{ "Crit",       &s.showFCT_Crit },
-			{ "Heals",      &s.showFCT_Heals },
-			{ "Crit Heals", &s.showFCT_CritHeals },
-			{ "Hit By",     &s.showFCT_HitBy },
-		};
-
-		int fctCol = std::max(1, sizeX / 120);
-		if (ImGui::BeginTable("FCT Toggles", fctCol))
+		if (ImGui::BeginTabItem("FCT"))
 		{
-			ImGui::TableNextRow();
-			for (auto& [label, val] : fctBools)
+			if (ImGui::BeginChild("##FCTChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
-				ImGui::TableNextColumn();
-				ImGui::Checkbox(label, val);
+				int sizeX = static_cast<int>(ImGui::GetWindowWidth());
+
+				ImGui::Checkbox("Enable FCT", &s.showFCT);
+
+				BoolEntry fctBools[] = {
+					{ "Melee",      &s.showFCT_Melee },
+					{ "DD",         &s.showFCT_DD },
+					{ "DoT",        &s.showFCT_DoT },
+					{ "Pet",        &s.showFCT_Pet },
+					{ "Crit",       &s.showFCT_Crit },
+					{ "Heals",      &s.showFCT_Heals },
+					{ "Crit Heals", &s.showFCT_CritHeals },
+					{ "Hit By",     &s.showFCT_HitBy },
+				};
+
+				int fctCol = std::max(1, sizeX / 120);
+				if (ImGui::BeginTable("FCT Toggles", fctCol))
+				{
+					ImGui::TableNextRow();
+					for (auto& [label, val] : fctBools)
+					{
+						ImGui::TableNextColumn();
+						ImGui::Checkbox(label, val);
+					}
+					ImGui::EndTable();
+				}
+
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Font Scale", &s.fctFontScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Lifetime (s)", &s.fctLifetime, 1.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 			}
-			ImGui::EndTable();
+			ImGui::EndChild();
+			ImGui::EndTabItem();
 		}
 
-		ImGui::SetNextItemWidth(100);
-		ImGui::SliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
-		ImGui::SetNextItemWidth(100);
-		ImGui::SliderFloat("Font Scale", &s.fctFontScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-		ImGui::SetNextItemWidth(100);
-		ImGui::SliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-		ImGui::SetNextItemWidth(100);
-		ImGui::SliderFloat("Lifetime (s)", &s.fctLifetime, 1.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+		if (ImGui::BeginTabItem("Theme"))
+		{
+			if (ImGui::BeginChild("##ThemeChild", ImVec2(0, 0), ImGuiChildFlags_None))
+			{
+				s.themeIdx = ImGuiTheme::DrawThemePicker(s.themeIdx, "Theme##DPSTheme");
+			}
+			ImGui::EndChild();
+			ImGui::EndTabItem();
+		}
+
+		ImGui::EndTabBar();
 	}
 }
 

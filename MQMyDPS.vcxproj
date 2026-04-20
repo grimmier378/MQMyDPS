@@ -73,7 +73,9 @@
     <ClInclude Include="MyDPSData.h" />
     <ClInclude Include="MyDPSParser.h" />
     <ClInclude Include="MyDPSRenderer.h" />
+    <ClInclude Include="MyDPSFloatingText.h" />
     <ClInclude Include="MyDPSTLO.h" />
+    <ClInclude Include="Theme.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MQMyDPS.rc" />

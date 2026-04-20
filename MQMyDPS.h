@@ -29,6 +29,7 @@ public:
 	void ResetAll();
 	void TrackDoTCasting();
 	void RemoveActiveDoTs(int spawnID);
+	void RefreshAggregates();
 
 	int ResolveSpawnID(const DamageRecord& record);
 	int ResolveDoTSpawnID(const std::string& targetName, const std::string& spellName);
@@ -41,6 +42,12 @@ public:
 	std::vector<BattleData>                             battleHistory;
 	std::unordered_map<std::string, HealTargetData>     currentHealTargets;
 	FCTManager                                          fctManager;
+
+	std::unordered_map<int, TargetDamageData>            cachedSessionTargets;
+	std::vector<TargetDamageData>                        sortedSessionTargets;
+	std::unordered_map<std::string, HealTargetData>      cachedSessionHeals;
+	std::vector<HealTargetData>                          sortedSessionHeals;
+	bool                                                 aggregateDirty = true;
 
 	std::string charName;
 	std::string serverName;

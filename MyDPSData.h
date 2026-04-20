@@ -125,6 +125,7 @@ struct MyDPSSettings
 	int   battleEndDelay   = 10;
 	float fontScale        = 1.0f;
 	float spamFontScale    = 1.0f;
+	int   themeIdx         = 10;
 	ImVec4 bgColor         = ImVec4(0.0f, 0.0f, 0.0f, 0.5f);
 
 	bool  showFCT           = false;

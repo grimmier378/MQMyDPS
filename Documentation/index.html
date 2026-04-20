@@ -77,8 +77,9 @@
         Pie Chart) that can all be shown simultaneously. Line graphs include a DPS-by-battle
         chart and a multi-axis damage breakdown with 3 independent Y axes (Damage, Crits,
         Heals). The bar chart shows 7 grouped bars per battle (Melee, DD, DoT, Pet, Crit,
-        Heals, Crit Heals). A scrollable window shows 50 battles at a time with a slider
-        to scroll back through up to 250 battles of history. All series use colors from the
+        Heals, Crit Heals). A bordered scroll container with padding gutters for easier scrolling
+        shows 50 battles at a time with a slider to scroll back through up to 250 battles
+        of history. All series use colors from the
         damageColors map and have clickable legends to hide/show individual series.</li>
         <li><strong>MQMyChat integration:</strong> If MQMyChat is loaded, battle summaries,
         heal reports, and the <code>/mydps report</code> command output are automatically
@@ -92,6 +93,9 @@
         &mdash; melee uses the "hit" color key since melee subtypes (crush, slash, etc.) are
         only distinguished in the combat spam overlay. Configurable via <code>/mydps fct</code>
         and the <code>[FCT]</code> INI section.</li>
+        <li><strong>Theme support:</strong> 11 built-in themes, configurable in the Theme
+        tab of the config window. The selected theme is persisted as
+        <code>ThemeIdx</code> in the INI file.</li>
         <li><strong>TLO API:</strong> Exposes DPS data to macros and Lua scripts via
         <code>${MyDPS.DPS}</code>, <code>${MyDPS.Target[id].TotalDamage}</code>, etc.</li>
         <li><strong>Per-character settings:</strong> All configuration is saved to INI files

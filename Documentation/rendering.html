@@ -78,6 +78,19 @@
         </tbody>
     </table>
 
+    <h3>Theme Wrapping</h3>
+
+    <p>All three windowed render calls (CombatSpam, MainWindow, ConfigWindow) apply the
+    user-selected theme before <code>ImGui::Begin</code> and reset it after
+    <code>ImGui::End</code>:</p>
+
+    <pre><code>ImGuiStyle oldStyle = ImGuiTheme::ApplyTheme(settings.themeIdx);
+// ... ImGui::Begin / End ...
+ImGuiTheme::ResetTheme(oldStyle);</code></pre>
+
+    <p>RenderFloatingText does not use theme wrapping because it draws directly to the
+    background draw list rather than creating an ImGui window.</p>
+
     <h3>Save-on-Close Pattern</h3>
 
     <p>All three closeable windows (Main, Config, Combat Spam) implement a save-on-close
@@ -182,6 +195,10 @@ ImGui::PopFont();</code></pre>
         <li>Graphs</li>
     </ol>
 
+    <p>All five tab contents are wrapped in <code>BeginChild/EndChild</code> with
+    <code>ImVec2(0, 0)</code> size, so the tab bar stays fixed at the top and each tab's
+    content scrolls independently.</p>
+
     <h2>Tab: Current Battle</h2>
 
     <p>If no battle is active and no battle damage has been recorded, a hint text is shown.
@@ -282,23 +299,24 @@ ImGui::PopFont();</code></pre>
         Total) reading live from <code>engine.currentTargets</code>. Updated every frame.
         Shown only if the current battle has any targets.</li>
         <li><strong>All Session Targets:</strong> A 4-column table (Name, Hits, Avg, Total)
-        aggregated across all completed battles plus the current one. The aggregation is
-        computed inside the render function by iterating all battles and summing every
-        <code>TargetDamageData</code> field by spawn ID (totalDamage, critDamage, dotDamage,
-        dsDamage, petDamage, nonMeleeDamage, hitCount, missCount). Results are sorted by
-        total damage descending. The table uses <code>ImGuiTableFlags_ScrollY</code> for
+        reading from the pre-sorted <code>sortedSessionTargets</code> vector. This vector
+        is maintained incrementally and re-sorted on a 250ms throttle, rather than
+        aggregating inside the render function every frame. Results are sorted by total
+        damage descending. The table uses <code>ImGuiTableFlags_ScrollY</code> for
         vertical scrolling when many targets have been recorded across the session.</li>
     </ul>
 
     <h2>Tab: Healing</h2>
 
-    <p>The Healing tab aggregates heal data from all completed battles
-    (<code>engine.battleHistory</code>) and the current in-progress battle
-    (<code>engine.currentHealTargets</code>) into a unified per-player map. This means it
-    shows your total healing output for the entire session, not just one battle.</p>
+    <p>The Healing tab reads from the pre-sorted <code>sortedSessionHeals</code> vector,
+    which aggregates heal data from all completed battles and the current in-progress battle
+    into a unified per-player collection. This vector is maintained incrementally and
+    re-sorted on a 250ms throttle, rather than re-aggregating inside the render function
+    every frame. This means it shows your total healing output for the entire session, not
+    just one battle.</p>
 
-    <p>The aggregated results are sorted by <code>GetTotalHeals()</code> descending so the
-    player you healed the most appears at the top.</p>
+    <p>The results are sorted by <code>GetTotalHeals()</code> descending so the player you
+    healed the most appears at the top.</p>
 
     <p>The table has 5 columns, all hideable and reorderable except "Player" which is
     marked <code>NoHide</code>:</p>
@@ -341,6 +359,14 @@ ImGui::PopFont();</code></pre>
 
     <p>These toggle flags are members of <code>MyDPSRenderer</code> (not the engine), so
     they are per-session and not persisted to the INI file.</p>
+
+    <p>The Graphs tab content is wrapped in a child window using
+    <code>ImGuiChildFlags_Borders</code> and
+    <code>PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, ...))</code> to provide
+    scroll gutters on both sides of the content area.</p>
+
+    <p>Graph data vectors are cached as renderer members and only rebuilt when the battle
+    count or scroll offset changes, avoiding per-frame vector reconstruction.</p>
 
     <h3>Scrollable Graph Window</h3>
 
@@ -511,14 +537,14 @@ if (engine.settings.spamClickThrough)
 
     <h2>Config Window</h2>
 
+    <p>The config window has a default size of 350x350 pixels.</p>
+
     <h3>Data-Driven Layout</h3>
 
     <p>Instead of writing separate ImGui calls for every setting, the config window defines
-    three arrays of structs at the top of <code>RenderConfig()</code>:</p>
+    a <code>BoolEntry</code> struct array at the top of <code>RenderConfig()</code>:</p>
 
     <pre><code>struct BoolEntry  { const char* label; bool* value; };
-struct IntEntry   { const char* label; int*  value; int min; int max; };
-struct FloatEntry { const char* label; float* value; float min; float max; };
 
 BoolEntry bools[] = {
     { "Show Type",         &amp;s.showType },
@@ -540,27 +566,28 @@ BoolEntry bools[] = {
     rather than an option setting. Adding a new boolean setting requires exactly one line
     in the <code>bools</code> array &mdash; the rendering loop handles layout automatically.</p>
 
-    <h3>CollapsingHeaders</h3>
+    <p>Sliders (Display Time, Battle End Delay, Font Scale, Spam Font Scale, and the FCT
+    sliders) are direct <code>ImGui::SliderInt</code> / <code>ImGui::SliderFloat</code>
+    calls rather than data-driven structs.</p>
 
-    <p>Settings are organized into five collapsible sections. The first four are open by
-    default (<code>ImGuiTreeNodeFlags_DefaultOpen</code>); the FCT section is collapsed
-    by default:</p>
+    <h3>Tab Bar Layout</h3>
+
+    <p>Settings are organized into four tabs using <code>BeginTabBar("ConfigTabs")</code>:</p>
 
     <table>
-        <thead><tr><th>Section</th><th>Contents</th><th>Column width (pixels per col)</th><th>Default state</th></tr></thead>
+        <thead><tr><th>Tab</th><th>Contents</th><th>Column width (pixels per col)</th></tr></thead>
         <tbody>
-            <tr><td>Display</td><td>All bool checkboxes (12 entries)</td><td>165</td><td>Open</td></tr>
-            <tr><td>Timing</td><td>Int sliders (Display Time, Battle End Delay)</td><td>220</td><td>Open</td></tr>
-            <tr><td>Scale</td><td>Float sliders (Font Scale, Spam Font Scale)</td><td>220</td><td>Open</td></tr>
-            <tr><td>Colors</td><td>Background color + all damageColors entries</td><td>150</td><td>Open</td></tr>
-            <tr><td>Floating Combat Text</td><td>FCT master toggle, 8 per-type toggles, 4 sliders</td><td>120 (toggles)</td><td>Collapsed</td></tr>
+            <tr><td>Display</td><td>12 bool checkboxes in a table, plus Display Time slider, Battle End Delay slider, Font Scale slider, Spam Font Scale slider</td><td>165</td></tr>
+            <tr><td>Colors</td><td>Background color picker + all damageColors entries in a table</td><td>150</td></tr>
+            <tr><td>FCT</td><td>Enable FCT master checkbox, 8 per-type toggles in a table, plus Base Font Size, Font Scale, Shadow Offset, Lifetime sliders</td><td>120 (toggles)</td></tr>
+            <tr><td>Theme</td><td>Theme picker combo via <code>ImGuiTheme::DrawThemePicker</code></td><td>&mdash;</td></tr>
         </tbody>
     </table>
 
-    <p>The column count for each section is computed dynamically:</p>
+    <p>The column count for table-based sections is computed dynamically:</p>
 
     <pre><code>int sizeX = static_cast&lt;int&gt;(ImGui::GetWindowWidth());
-int col = std::max(1, sizeX / 165);  // For Display section</code></pre>
+int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
 
     <p>This means when you make the config window wider, more checkboxes appear per row.
     When you narrow it, they wrap to more rows. <code>std::max(1, ...)</code> ensures there
@@ -577,18 +604,18 @@ int col = std::max(1, sizeX / 165);  // For Display section</code></pre>
         whether MQMyChat is loaded.</li>
     </ul>
 
-    <h3>Color Section</h3>
+    <h3>Colors Tab</h3>
 
-    <p>The Colors section first renders a <code>ColorEdit4</code> for the background color
+    <p>The Colors tab first renders a <code>ColorEdit4</code> for the background color
     (spam overlay background with alpha). Then it iterates all entries in
-    <code>settings.damageColors</code> and renders one <code>ColorEdit4</code> per entry,
-    using <code>ImGuiColorEditFlags_NoInputs</code> to show only the colored swatch,
-    keeping the section compact.</p>
+    <code>settings.damageColors</code> and renders one <code>ColorEdit4</code> per entry
+    in a table with <code>sizeX / 150</code> columns, using
+    <code>ImGuiColorEditFlags_NoInputs</code> to show only the colored swatch,
+    keeping the tab compact.</p>
 
-    <h3>Floating Combat Text Section</h3>
+    <h3>FCT Tab</h3>
 
-    <p>The FCT section of the config window is collapsed by default (no
-    <code>DefaultOpen</code> flag). It contains:</p>
+    <p>The FCT tab contains:</p>
 
     <ul>
         <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling

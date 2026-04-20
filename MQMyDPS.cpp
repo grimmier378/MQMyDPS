@@ -72,6 +72,7 @@ PLUGIN_API void OnPulse()
 	g_dpsEngine->TrackDoTCasting();
 	g_dpsEngine->UpdateCombatState();
 	g_dpsEngine->CleanExpiredRecords();
+	g_dpsEngine->RefreshAggregates();
 }
 
 PLUGIN_API void OnUpdateImGui()
@@ -248,6 +249,7 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.fontScale = static_cast<float>(atof(buf));
 	GetPrivateProfileString("Options", "SpamFontScale", "1.0", buf, sizeof(buf), path);
 	settings.spamFontScale = static_cast<float>(atof(buf));
+	settings.themeIdx = GetPrivateProfileInt("Options", "ThemeIdx", 10, path);
 
 	showMainWindow = GetPrivateProfileBool("Windows", "ShowMain", true, path);
 	showConfigWindow = GetPrivateProfileBool("Windows", "ShowConfig", false, path);
@@ -302,6 +304,7 @@ void MyDPSEngine::SaveCharacterSettings()
 	auto floatStr = [](float v) { return fmt::format("{:.2f}", v); };
 	WritePrivateProfileString("Options", "FontScale", floatStr(settings.fontScale), path);
 	WritePrivateProfileString("Options", "SpamFontScale", floatStr(settings.spamFontScale), path);
+	WritePrivateProfileInt("Options", "ThemeIdx", settings.themeIdx, path);
 
 	WritePrivateProfileBool("Windows", "ShowMain", showMainWindow, path);
 	WritePrivateProfileBool("Windows", "ShowConfig", showConfigWindow, path);
@@ -439,6 +442,27 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			target.petDamage += record.damage;
 		if (record.type == DamageType::NonMelee)
 			target.nonMeleeDamage += record.damage;
+
+		auto& sessionTarget = cachedSessionTargets[spawnID];
+		if (sessionTarget.name.empty())
+		{
+			sessionTarget.spawnID = spawnID;
+			sessionTarget.name = record.targetName;
+		}
+		sessionTarget.totalDamage += record.damage;
+		sessionTarget.hitCount++;
+		if (record.type == DamageType::Crit)
+			sessionTarget.critDamage += record.damage;
+		if (record.type == DamageType::DoT)
+			sessionTarget.dotDamage += record.damage;
+		if (record.type == DamageType::DamageShield)
+			sessionTarget.dsDamage += record.damage;
+		if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+			sessionTarget.petDamage += record.damage;
+		if (record.type == DamageType::NonMelee)
+			sessionTarget.nonMeleeDamage += record.damage;
+
+		aggregateDirty = true;
 	}
 
 	if (record.type == DamageType::DirectHeal && record.damage > 0)
@@ -451,13 +475,28 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 				ht.name = record.targetName;
 			ht.directHeals += record.damage;
 			ht.healCount++;
+
+			auto& sht = cachedSessionHeals[record.targetName];
+			if (sht.name.empty())
+				sht.name = record.targetName;
+			sht.directHeals += record.damage;
+			sht.healCount++;
+			aggregateDirty = true;
 		}
 	}
 
 	if (record.type == DamageType::CritHeal && record.damage > 0)
 	{
 		if (inCombat)
+		{
 			battleCritHeals += record.damage;
+
+			auto& sht = cachedSessionHeals[record.targetName];
+			if (sht.name.empty())
+				sht.name = record.targetName;
+			sht.critHeals += record.damage;
+			aggregateDirty = true;
+		}
 	}
 
 	if (record.targetSpawnID <= 0)
@@ -593,7 +632,38 @@ void MyDPSEngine::ResetAll()
 	sessionHitCount = 0;
 	sessionStartTime = std::chrono::steady_clock::now();
 
+	cachedSessionTargets.clear();
+	sortedSessionTargets.clear();
+	cachedSessionHeals.clear();
+	sortedSessionHeals.clear();
+	aggregateDirty = true;
+
 	fctManager.Clear();
+}
+
+void MyDPSEngine::RefreshAggregates()
+{
+	if (!aggregateDirty)
+		return;
+	aggregateDirty = false;
+
+	sortedSessionTargets.clear();
+	sortedSessionTargets.reserve(cachedSessionTargets.size());
+	for (const auto& [id, data] : cachedSessionTargets)
+		sortedSessionTargets.push_back(data);
+	std::sort(sortedSessionTargets.begin(), sortedSessionTargets.end(),
+		[](const TargetDamageData& a, const TargetDamageData& b) {
+			return a.totalDamage > b.totalDamage;
+		});
+
+	sortedSessionHeals.clear();
+	sortedSessionHeals.reserve(cachedSessionHeals.size());
+	for (const auto& [name, data] : cachedSessionHeals)
+		sortedSessionHeals.push_back(data);
+	std::sort(sortedSessionHeals.begin(), sortedSessionHeals.end(),
+		[](const HealTargetData& a, const HealTargetData& b) {
+			return a.GetTotalHeals() > b.GetTotalHeals();
+		});
 }
 
 int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)

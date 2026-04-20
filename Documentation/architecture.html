@@ -84,6 +84,7 @@ OnPulse (throttled to 250ms)
     |-- TrackDoTCasting()   -->  monitor CastingData.SpellID transitions
     |-- UpdateCombatState() -->  GetCombatState() == eCombatState_Combat
     |-- CleanExpiredRecords()
+    |-- RefreshAggregates() -->  re-sort cached session vectors if aggregateDirty
     |
     v
 OnUpdateImGui
@@ -131,6 +132,7 @@ MQMyDPS.h  (includes MyDPSData.h + MyDPSFloatingText.h, declares MyDPSEngine)
     |--- MyDPSParser.h  (includes MyDPSData.h)
     |--- MyDPSRenderer.h  (forward declares MyDPSEngine, owns m_lastFCTUpdate)
     |--- MyDPSTLO.h  (includes mq/Plugin.h)
+    |--- Theme.h  (ImGuiTheme namespace: ApplyTheme, ResetTheme, DrawThemePicker)
     |
 MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementation)
     </div>
@@ -175,6 +177,27 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         floating combat text ring buffer. Receives entries from <code>RecordDamage</code>,
         updated and rendered each frame by <code>MyDPSRenderer::RenderFloatingText()</code>.
         Cleared on zone and on reset.</li>
+        <li><code>cachedSessionTargets</code> &mdash;
+        <code>unordered_map&lt;int, TargetDamageData&gt;</code> running aggregate of all
+        targets across every battle in the session. Updated incrementally inside
+        <code>RecordDamage</code> each time damage is recorded, so it never needs a full
+        rebuild from <code>battleHistory</code>.</li>
+        <li><code>sortedSessionTargets</code> &mdash;
+        <code>vector&lt;TargetDamageData&gt;</code> pre-sorted by
+        <code>totalDamage</code> descending. Rebuilt from <code>cachedSessionTargets</code>
+        by <code>RefreshAggregates()</code>.</li>
+        <li><code>cachedSessionHeals</code> &mdash;
+        <code>unordered_map&lt;string, HealTargetData&gt;</code> running aggregate of all
+        heals across the session. Updated incrementally in <code>RecordDamage</code>.</li>
+        <li><code>sortedSessionHeals</code> &mdash;
+        <code>vector&lt;HealTargetData&gt;</code> pre-sorted by total heals descending.
+        Rebuilt by <code>RefreshAggregates()</code>.</li>
+        <li><code>aggregateDirty</code> &mdash; <code>bool</code> flag set to
+        <code>true</code> whenever <code>RecordDamage</code> modifies the cached session
+        maps. Cleared by <code>RefreshAggregates()</code>, which only performs the sort
+        when the flag is set. Render functions read the pre-sorted vectors
+        (<code>sortedSessionTargets</code> / <code>sortedSessionHeals</code>) directly
+        instead of re-aggregating every frame.</li>
         <li>Session and battle accumulators (damage, hits, crits, DoTs).</li>
         <li><code>m_myChatLoaded</code> &mdash; cached result of
         <code>IsPluginLoaded("MQMyChat")</code>, set once during
@@ -218,6 +241,22 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         to compute delta-time for the floating combat text animation system</li>
     </ul>
 
+    <p>The renderer also caches graph data vectors to avoid rebuilding them every frame:</p>
+
+    <ul>
+        <li><code>m_gNums</code>, <code>m_gDps</code>, <code>m_gMelee</code>,
+        <code>m_gDD</code>, <code>m_gDots</code>, <code>m_gPets</code>,
+        <code>m_gCrits</code>, <code>m_gHeals</code>, <code>m_gCritHeals</code>
+        &mdash; pre-built <code>vector&lt;float&gt;</code> arrays for ImPlot graph
+        series.</li>
+        <li><code>m_cachedBattleCount</code> / <code>m_cachedGraphOffset</code> &mdash;
+        track the last known <code>battleHistory.size()</code> and scroll offset. The
+        graph vectors are only rebuilt when either value changes.</li>
+        <li><code>m_gStartIdx</code> / <code>m_gCount</code> &mdash; the computed
+        window into <code>battleHistory</code> that the current graph vectors
+        represent.</li>
+    </ul>
+
     <p>All three chart types (line, bar, pie) can be shown simultaneously via independent
     checkboxes. These flags are not persisted to the INI &mdash; they reset to defaults
     each session.</p>
@@ -233,9 +272,9 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
     avoids repeating the map lookup boilerplate on every colored text call. If a key is
     not found, it falls back to white so nothing crashes.</p>
 
-    <p>The config window uses a data-driven layout: arrays of <code>BoolEntry</code>,
-    <code>IntEntry</code>, and <code>FloatEntry</code> structs are iterated to render
-    checkboxes and sliders without repeating the same layout code for every setting. The
+    <p>The config window is organized into four tabs: Display, Colors, FCT, and Theme.
+    It uses a data-driven layout: arrays of <code>BoolEntry</code> structs are iterated
+    to render checkboxes without repeating the same layout code for every setting. The
     column count in each config section is computed dynamically from the window width.</p>
 
     <p>Font scaling is applied via <code>ImGui::PushFont(nullptr, FontSizeBase * scale)</code>
@@ -362,6 +401,8 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         <li><code>damageColors</code>: an <code>unordered_map&lt;string, ImVec4&gt;</code>
         mapping color keys to RGBA values. Includes keys for damage types, stat display
         colors, and entity name colors. See the full color key table below.</li>
+        <li><code>themeIdx</code> (default 10): index into the 11-theme table in
+        <code>Theme.h</code>. Default 10 selects the "Default" theme. Persisted to INI.</li>
         <li><code>showFCT</code> (default false): master toggle for floating combat text.</li>
         <li>Per-type FCT toggles: <code>showFCT_Melee</code>, <code>showFCT_DD</code>,
         <code>showFCT_DoT</code>, <code>showFCT_Pet</code>, <code>showFCT_Crit</code>,
@@ -464,6 +505,25 @@ if (wasOpen &amp;&amp; !engine.showMainWindow)
 
     <p>This pattern is repeated identically for <code>showConfigWindow</code> and
     <code>showCombatSpam</code>.</p>
+
+    <h2>Theme Support</h2>
+
+    <p><code>Theme.h</code> provides 11 themes via the <code>ImGuiTheme</code> namespace.
+    Three functions are used: <code>ApplyTheme(themeIdx)</code> saves the current
+    <code>ImGuiStyle</code> and applies the selected theme, returning the old style;
+    <code>ResetTheme(oldStyle)</code> restores it after rendering;
+    <code>DrawThemePicker(themeIdx, label)</code> renders a combo selector and returns
+    the newly selected index.</p>
+
+    <p>Themes are applied to three windows: <code>RenderCombatSpam</code>,
+    <code>RenderMainWindow</code>, and <code>RenderConfigWindow</code>. Each wraps its
+    rendering in an <code>ApplyTheme</code> / <code>ResetTheme</code> pair.
+    <code>RenderFloatingText</code> (FCT) does <em>not</em> apply a theme because it
+    draws directly to the background draw list rather than inside a themed window.</p>
+
+    <p>The selected theme index is stored in <code>settings.themeIdx</code> (default 10,
+    which corresponds to the "Default" theme). It is persisted to the INI and exposed in
+    the Theme tab of the config window via <code>DrawThemePicker</code>.</p>
 
     <h2>OnBeginZone: Save Before Clear</h2>
 

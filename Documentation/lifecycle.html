@@ -82,8 +82,10 @@
                 <td>Every game frame (approximately 60 times per second). MQMyDPS
                 throttles its own work to 250ms intervals using a static timer.</td>
                 <td>Calls <code>TrackDoTCasting()</code> to detect spell cast completions,
-                <code>UpdateCombatState()</code> to check if combat ended, and
-                <code>CleanExpiredRecords()</code> to prune old spam entries. Does nothing
+                <code>UpdateCombatState()</code> to check if combat ended,
+                <code>CleanExpiredRecords()</code> to prune old spam entries, and
+                <code>RefreshAggregates()</code> to sort cached session target and heal
+                aggregates when the <code>aggregateDirty</code> flag is set. Does nothing
                 if tracking is disabled.</td>
             </tr>
             <tr>
@@ -93,7 +95,10 @@
                 <td>Calls <code>RenderMainWindow</code>, <code>RenderConfigWindow</code>,
                 <code>RenderCombatSpam</code>, and <code>RenderFloatingText</code> on the
                 renderer. Each function checks its own visibility flag first, so invisible
-                windows cost almost nothing.</td>
+                windows cost almost nothing. <code>RenderCombatSpam</code>,
+                <code>RenderMainWindow</code>, and <code>RenderConfigWindow</code> apply
+                and reset the active theme via <code>ImGuiTheme</code> before/after
+                <code>ImGui::Begin</code>/<code>ImGui::End</code>.</td>
             </tr>
             <tr>
                 <td><code>OnBeginZone</code></td>
