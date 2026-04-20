@@ -69,8 +69,13 @@
         <li><strong>Full color-coded UI:</strong> Stats values in the Current Battle tab are
         colored by data type. Target names use distinct colors: damage targets in reddish
         pink, heal targets in light blue. The menu bar DPS counter is also color-coded.</li>
-        <li><strong>Graphs:</strong> ImPlot-powered DPS line graphs and damage bar charts
-        across battles, plus pie charts showing damage distribution by target.</li>
+        <li><strong>Graphs:</strong> Three toggleable chart types (Line Graph, Bar Chart,
+        Pie Chart) that can all be shown simultaneously. Line graphs include a DPS-by-battle
+        chart and a multi-axis damage breakdown with 3 independent Y axes (Damage, Crits,
+        Heals). The bar chart shows 7 grouped bars per battle (Melee, DD, DoT, Pet, Crit,
+        Heals, Crit Heals). A scrollable window shows 50 battles at a time with a slider
+        to scroll back through up to 250 battles of history. All series use colors from the
+        damageColors map and have clickable legends to hide/show individual series.</li>
         <li><strong>MQMyChat integration:</strong> If MQMyChat is loaded, battle summaries,
         heal reports, and the <code>/mydps report</code> command output are automatically
         sent to a dedicated "MyDPS" channel in MQMyChat using MQ color codes.</li>
@@ -132,13 +137,18 @@
                 <td>ImGui rendering. Combat spam overlay (newest-at-top, click-through
                 support), main window with 5 tabs (Current Battle, History, Targets,
                 Healing, Graphs), data-driven config window, font scaling on all windows,
-                ImPlot charts. Color lookup uses the <code>auto C = [&amp;](key) -&gt;
+                ImPlot charts with three toggleable types (line, bar, pie) and scrollable
+                graph window. Color lookup uses the <code>auto C = [&amp;](key) -&gt;
                 ImVec4</code> lambda pattern throughout.</td>
             </tr>
             <tr>
                 <td><code>MyDPSRenderer.h</code></td>
                 <td><code>MyDPSRenderer</code> class declaration. Public render methods
-                plus private per-tab helpers including <code>RenderHealing()</code>.</td>
+                plus private per-tab helpers including <code>RenderHealing()</code>,
+                <code>RenderLineGraph()</code>, and <code>RenderPieChart()</code>.
+                Holds per-session graph toggle state (<code>m_showPieChart</code>,
+                <code>m_showLineGraph</code>, <code>m_showBarChart</code>) and the
+                graph scroll offset (<code>m_graphOffset</code>).</td>
             </tr>
             <tr>
                 <td><code>MyDPSTLO.cpp</code></td>

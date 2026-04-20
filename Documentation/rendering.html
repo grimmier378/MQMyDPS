@@ -304,29 +304,111 @@ ImGui::PopFont();</code></pre>
 
     <h2>Tab: Graphs</h2>
 
-    <p>A checkbox toggles between line/bar chart mode and pie chart mode. Both use ImPlot.</p>
+    <p>Three independent checkboxes at the top of the tab let you toggle each chart type
+    on or off. All three can be shown simultaneously, or any combination:</p>
 
-    <p><strong>Line/bar mode</strong> renders two plots stacked vertically:</p>
-    <ol>
-        <li>"DPS by Battle" &mdash; an ImPlot <code>PlotLine</code> with battle number on
-        the X axis and DPS on the Y axis.</li>
-        <li>"Total Damage by Battle" &mdash; an ImPlot <code>PlotBars</code> with battle
-        number on X and total damage on Y.</li>
-    </ol>
+    <ul>
+        <li><strong>Line Graph</strong> (<code>m_showLineGraph</code>, default: on)</li>
+        <li><strong>Bar Chart</strong> (<code>m_showBarChart</code>, default: on)</li>
+        <li><strong>Pie Chart</strong> (<code>m_showPieChart</code>, default: off)</li>
+    </ul>
 
-    <p>Both plots use axis constraint calls to lock the minimum at 0,0:</p>
+    <p>These toggle flags are members of <code>MyDPSRenderer</code> (not the engine), so
+    they are per-session and not persisted to the INI file.</p>
 
-    <pre><code>ImPlot::SetupAxisLimitsConstraints(ImAxis_X1, 0, HUGE_VAL);
-ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);</code></pre>
+    <h3>Scrollable Graph Window</h3>
+
+    <p>When there are more battles than the display window can show at once, a slider
+    appears to let you scroll back through history. Two constants control this:</p>
+
+    <pre><code>static constexpr int GRAPH_WINDOW   = 50;   // battles visible at once
+static constexpr int GRAPH_MAX_BACK = 250;  // max history depth</code></pre>
+
+    <p>The graphs display up to 50 battles at a time. If you have more than 50 completed
+    battles, a full-width slider appears above the charts. Dragging it lets you scroll
+    back through up to 250 battles of history. The slider label shows which battles are
+    currently visible (for example, "Battles 51-100 of 150"). The scroll offset is stored
+    in <code>m_graphOffset</code> on the renderer.</p>
+
+    <h3>Line Graph: DPS by Battle</h3>
+
+    <p>A single-series line chart plotting DPS (Y axis) against battle number (X axis).
+    The line color uses the <code>"dps"</code> color key (gold by default). Y axis is
+    constrained to a minimum of 0 to prevent negative space.</p>
+
+    <h3>Line Graph: Damage Breakdown by Battle</h3>
+
+    <p>A multi-series line chart with <strong>three independent Y axes</strong>, each
+    auto-scaling to fit its own data range:</p>
+
+    <table>
+        <thead><tr><th>Y Axis</th><th>Position</th><th>Label</th><th>Series</th><th>Color Keys</th></tr></thead>
+        <tbody>
+            <tr>
+                <td>Y1</td><td>Left</td><td>"Damage"</td>
+                <td>Melee, DD, DoT, Pet</td>
+                <td>"hit", "non-melee", "dot", "pet"</td>
+            </tr>
+            <tr>
+                <td>Y2</td><td>Right</td><td>"Crits"</td>
+                <td>Crit</td>
+                <td>"crit"</td>
+            </tr>
+            <tr>
+                <td>Y3</td><td>Right</td><td>"Heals"</td>
+                <td>Heals, Crit Heals</td>
+                <td>"heal", "critHeals"</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>All three Y axes are constrained to a minimum of 0. The three-axis design means
+    damage values, crit values, and heal values each auto-scale independently, so a
+    small heal amount is still visible even when damage values are much larger. The
+    legend is positioned in the top-right corner and is clickable &mdash; clicking a
+    series name in the legend hides or shows that series.</p>
+
+    <p>The "Melee" series is computed as total damage minus crits, DoTs, DD, and pets
+    (with a floor of 0), so it represents the remaining melee-only portion of damage.</p>
+
+    <h3>Bar Chart: Damage Breakdown Bars</h3>
+
+    <p>A grouped bar chart with 7 thin bars side-by-side per battle. Each bar represents
+    a different damage or heal category:</p>
+
+    <table>
+        <thead><tr><th>Bar</th><th>Color Key</th></tr></thead>
+        <tbody>
+            <tr><td>Melee</td><td>"hit"</td></tr>
+            <tr><td>DD</td><td>"non-melee"</td></tr>
+            <tr><td>DoT</td><td>"dot"</td></tr>
+            <tr><td>Pet</td><td>"pet"</td></tr>
+            <tr><td>Crit</td><td>"crit"</td></tr>
+            <tr><td>Heals</td><td>"heal"</td></tr>
+            <tr><td>Crit Heals</td><td>"critHeals"</td></tr>
+        </tbody>
+    </table>
+
+    <p>Bars are grouped using X-offset positioning. The total group width is 0.8 units,
+    divided equally among 7 bars. Each bar is shifted left or right from the battle
+    number's X position so they sit side-by-side without overlapping. Bar fill colors
+    come from <code>damageColors</code> using the same color keys as the line graph.
+    The legend is clickable to hide or show individual series.</p>
+
+    <h3>Pie Chart: Damage Distribution by Target</h3>
+
+    <p>Aggregates total damage by target name across all completed battles and the
+    current battle. Entries are sorted by damage descending before being passed to
+    ImPlot, so the largest slice always starts at the top. Uses
+    <code>ImPlotFlags_Equal</code> to ensure the pie renders as a circle rather than
+    an ellipse.</p>
+
+    <p>All plots use axis constraint calls to lock the minimum at 0:</p>
+
+    <pre><code>ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);</code></pre>
 
     <p>This prevents the axes from ever going negative, which would be visually confusing
-    for a damage chart. Without these constraints, ImPlot can auto-scale to show negative
-    space when the data values are small.</p>
-
-    <p><strong>Pie chart mode</strong> aggregates total damage by target name across all
-    battles and current targets, then renders an ImPlot <code>PlotPieChart</code>. Entries
-    are sorted by damage descending before being passed to ImPlot, so the largest slice
-    always starts at the top.</p>
+    for a damage chart.</p>
 
     <h2>Combat Spam Overlay</h2>
 

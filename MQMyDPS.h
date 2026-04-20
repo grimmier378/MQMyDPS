@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MyDPSData.h"
+#include "MyDPSFloatingText.h"
 
 #include <chrono>
 #include <deque>
@@ -39,6 +40,7 @@ public:
 	std::vector<ActiveDoT>                              activeDoTs;
 	std::vector<BattleData>                             battleHistory;
 	std::unordered_map<std::string, HealTargetData>     currentHealTargets;
+	FCTManager                                          fctManager;
 
 	std::string charName;
 	std::string serverName;

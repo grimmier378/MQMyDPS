@@ -190,6 +190,21 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
     <p>Read-only view of engine state. Draws three windows: main report window (5 tabs),
     config window, and combat spam overlay. Uses ImPlot for graphs.</p>
 
+    <p>The renderer holds its own per-session state for the Graphs tab:</p>
+
+    <ul>
+        <li><code>m_showPieChart</code> (default: false) &mdash; Toggle for the pie chart</li>
+        <li><code>m_showLineGraph</code> (default: true) &mdash; Toggle for line graphs</li>
+        <li><code>m_showBarChart</code> (default: true) &mdash; Toggle for the bar chart</li>
+        <li><code>m_graphOffset</code> (default: 0) &mdash; Scroll position for the
+        scrollable graph window, which displays 50 battles at a time and can scroll
+        back through up to 250 battles of history</li>
+    </ul>
+
+    <p>All three chart types (line, bar, pie) can be shown simultaneously via independent
+    checkboxes. These flags are not persisted to the INI &mdash; they reset to defaults
+    each session.</p>
+
     <p>A key pattern used throughout the renderer is the color lookup lambda:</p>
 
     <pre><code>auto C = [&amp;](const char* key) -&gt; ImVec4 {

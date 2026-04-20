@@ -82,14 +82,17 @@ PLUGIN_API void OnUpdateImGui()
 	s_renderer.RenderMainWindow(*g_dpsEngine);
 	s_renderer.RenderConfigWindow(*g_dpsEngine);
 	s_renderer.RenderCombatSpam(*g_dpsEngine);
+	s_renderer.RenderFloatingText(*g_dpsEngine);
 }
 
 PLUGIN_API void OnBeginZone()
 {
 	if (g_dpsEngine)
 	{
+		g_dpsEngine->SaveCharacterSettings();
 		g_dpsEngine->inCombat = false;
 		g_dpsEngine->activeDoTs.clear();
+		g_dpsEngine->fctManager.Clear();
 	}
 }
 
@@ -179,7 +182,14 @@ static void MyDPSCommand(PlayerClient*, const char* szLine)
 		return;
 	}
 
-	WriteChatf("\at[MQMyDPS]\ax Commands: start, stop, reset, report, show, hide, spam, lock, config");
+	if (ci_equals(arg, "fct"))
+	{
+		g_dpsEngine->settings.showFCT = !g_dpsEngine->settings.showFCT;
+		WriteChatf("\at[MQMyDPS]\ax Floating combat text %s.", g_dpsEngine->settings.showFCT ? "enabled" : "disabled");
+		return;
+	}
+
+	WriteChatf("\at[MQMyDPS]\ax Commands: start, stop, reset, report, show, hide, spam, lock, fct, config");
 }
 
 void MyDPSEngine::Initialize()
@@ -243,6 +253,24 @@ void MyDPSEngine::LoadCharacterSettings()
 	showConfigWindow = GetPrivateProfileBool("Windows", "ShowConfig", false, path);
 	showCombatSpam = GetPrivateProfileBool("Windows", "ShowCombatSpam", true, path);
 
+	settings.showFCT           = GetPrivateProfileBool("FCT", "Enabled", false, path);
+	settings.showFCT_Melee     = GetPrivateProfileBool("FCT", "Melee", true, path);
+	settings.showFCT_DD        = GetPrivateProfileBool("FCT", "DD", true, path);
+	settings.showFCT_DoT       = GetPrivateProfileBool("FCT", "DoT", true, path);
+	settings.showFCT_Pet       = GetPrivateProfileBool("FCT", "Pet", true, path);
+	settings.showFCT_Crit      = GetPrivateProfileBool("FCT", "Crit", true, path);
+	settings.showFCT_Heals     = GetPrivateProfileBool("FCT", "Heals", true, path);
+	settings.showFCT_CritHeals = GetPrivateProfileBool("FCT", "CritHeals", true, path);
+	settings.showFCT_HitBy     = GetPrivateProfileBool("FCT", "HitBy", true, path);
+	GetPrivateProfileString("FCT", "Lifetime", "2.5", buf, sizeof(buf), path);
+	settings.fctLifetime = static_cast<float>(atof(buf));
+	GetPrivateProfileString("FCT", "BaseFontSize", "24.0", buf, sizeof(buf), path);
+	settings.fctBaseFontSize = static_cast<float>(atof(buf));
+	GetPrivateProfileString("FCT", "FontScale", "1.5", buf, sizeof(buf), path);
+	settings.fctFontScale = static_cast<float>(atof(buf));
+	GetPrivateProfileString("FCT", "ShadowOffset", "2.0", buf, sizeof(buf), path);
+	settings.fctShadowOffset = static_cast<float>(atof(buf));
+
 	if (settings.autoStart)
 		tracking = true;
 
@@ -278,6 +306,20 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileBool("Windows", "ShowMain", showMainWindow, path);
 	WritePrivateProfileBool("Windows", "ShowConfig", showConfigWindow, path);
 	WritePrivateProfileBool("Windows", "ShowCombatSpam", showCombatSpam, path);
+
+	WritePrivateProfileBool("FCT", "Enabled", settings.showFCT, path);
+	WritePrivateProfileBool("FCT", "Melee", settings.showFCT_Melee, path);
+	WritePrivateProfileBool("FCT", "DD", settings.showFCT_DD, path);
+	WritePrivateProfileBool("FCT", "DoT", settings.showFCT_DoT, path);
+	WritePrivateProfileBool("FCT", "Pet", settings.showFCT_Pet, path);
+	WritePrivateProfileBool("FCT", "Crit", settings.showFCT_Crit, path);
+	WritePrivateProfileBool("FCT", "Heals", settings.showFCT_Heals, path);
+	WritePrivateProfileBool("FCT", "CritHeals", settings.showFCT_CritHeals, path);
+	WritePrivateProfileBool("FCT", "HitBy", settings.showFCT_HitBy, path);
+	WritePrivateProfileString("FCT", "Lifetime", floatStr(settings.fctLifetime), path);
+	WritePrivateProfileString("FCT", "BaseFontSize", floatStr(settings.fctBaseFontSize), path);
+	WritePrivateProfileString("FCT", "FontScale", floatStr(settings.fctFontScale), path);
+	WritePrivateProfileString("FCT", "ShadowOffset", floatStr(settings.fctShadowOffset), path);
 }
 
 void MyDPSEngine::UnloadCharacterSettings()
@@ -418,6 +460,18 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			battleCritHeals += record.damage;
 	}
 
+	if (record.targetSpawnID <= 0)
+	{
+		bool isIncoming = (record.type == DamageType::HitBy
+			|| record.type == DamageType::HitByNonMelee
+			|| record.type == DamageType::MissedMe
+			|| record.type == DamageType::DirectHeal
+			|| record.type == DamageType::CritHeal);
+		if (isIncoming && pLocalPlayer)
+			record.targetSpawnID = pLocalPlayer->SpawnID;
+	}
+
+	fctManager.AddEntry(record, settings);
 	recentRecords.push_back(std::move(record));
 }
 
@@ -538,6 +592,8 @@ void MyDPSEngine::ResetAll()
 	sessionDamage = 0;
 	sessionHitCount = 0;
 	sessionStartTime = std::chrono::steady_clock::now();
+
+	fctManager.Clear();
 }
 
 int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)

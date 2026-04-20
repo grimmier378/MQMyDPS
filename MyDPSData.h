@@ -127,6 +127,20 @@ struct MyDPSSettings
 	float spamFontScale    = 1.0f;
 	ImVec4 bgColor         = ImVec4(0.0f, 0.0f, 0.0f, 0.5f);
 
+	bool  showFCT           = false;
+	bool  showFCT_Melee     = true;
+	bool  showFCT_DD        = true;
+	bool  showFCT_DoT       = true;
+	bool  showFCT_Pet       = true;
+	bool  showFCT_Crit      = true;
+	bool  showFCT_Heals     = true;
+	bool  showFCT_CritHeals = true;
+	bool  showFCT_HitBy     = true;
+	float fctLifetime       = 2.5f;
+	float fctBaseFontSize   = 24.0f;
+	float fctFontScale      = 1.5f;
+	float fctShadowOffset   = 2.0f;
+
 	std::unordered_map<std::string, ImVec4> damageColors;
 
 	void InitDefaultColors()

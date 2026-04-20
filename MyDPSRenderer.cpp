@@ -30,6 +30,7 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 	if (engine.settings.spamClickThrough)
 		flags |= ImGuiWindowFlags_NoInputs;
 
+	bool wasOpen = engine.showCombatSpam;
 	if (ImGui::Begin(windowName.c_str(), &engine.showCombatSpam, flags))
 	{
 		ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * engine.settings.spamFontScale);
@@ -70,6 +71,9 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 		ImGui::PopFont();
 	}
 	ImGui::End();
+
+	if (wasOpen && !engine.showCombatSpam)
+		engine.SaveCharacterSettings();
 }
 
 void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
@@ -81,6 +85,7 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 
 	ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
 
+	bool wasOpen = engine.showMainWindow;
 	if (ImGui::Begin(windowName.c_str(), &engine.showMainWindow, ImGuiWindowFlags_MenuBar))
 	{
 		ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * engine.settings.fontScale);
@@ -158,6 +163,9 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 		ImGui::PopFont();
 	}
 	ImGui::End();
+
+	if (wasOpen && !engine.showMainWindow)
+		engine.SaveCharacterSettings();
 }
 
 void MyDPSRenderer::RenderCurrentBattle(MyDPSEngine& engine)
@@ -825,6 +833,7 @@ void MyDPSRenderer::RenderConfigWindow(MyDPSEngine& engine)
 	auto windowName = fmt::format("DPS Config##{}", engine.charName);
 	ImGui::SetNextWindowSize(ImVec2(350, 450), ImGuiCond_FirstUseEver);
 
+	bool wasOpen = engine.showConfigWindow;
 	if (ImGui::Begin(windowName.c_str(), &engine.showConfigWindow))
 	{
 		ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * engine.settings.fontScale);
@@ -833,6 +842,9 @@ void MyDPSRenderer::RenderConfigWindow(MyDPSEngine& engine)
 	}
 
 	ImGui::End();
+
+	if (wasOpen && !engine.showConfigWindow)
+		engine.SaveCharacterSettings();
 }
 
 void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
@@ -947,4 +959,58 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 			ImGui::EndTable();
 		}
 	}
+	ImGui::Spacing();
+
+	if (ImGui::CollapsingHeader("Floating Combat Text"))
+	{
+		ImGui::Checkbox("Enable FCT", &s.showFCT);
+
+		BoolEntry fctBools[] = {
+			{ "Melee",      &s.showFCT_Melee },
+			{ "DD",         &s.showFCT_DD },
+			{ "DoT",        &s.showFCT_DoT },
+			{ "Pet",        &s.showFCT_Pet },
+			{ "Crit",       &s.showFCT_Crit },
+			{ "Heals",      &s.showFCT_Heals },
+			{ "Crit Heals", &s.showFCT_CritHeals },
+			{ "Hit By",     &s.showFCT_HitBy },
+		};
+
+		int fctCol = std::max(1, sizeX / 120);
+		if (ImGui::BeginTable("FCT Toggles", fctCol))
+		{
+			ImGui::TableNextRow();
+			for (auto& [label, val] : fctBools)
+			{
+				ImGui::TableNextColumn();
+				ImGui::Checkbox(label, val);
+			}
+			ImGui::EndTable();
+		}
+
+		ImGui::SetNextItemWidth(100);
+		ImGui::SliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SetNextItemWidth(100);
+		ImGui::SliderFloat("Font Scale", &s.fctFontScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SetNextItemWidth(100);
+		ImGui::SliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SetNextItemWidth(100);
+		ImGui::SliderFloat("Lifetime (s)", &s.fctLifetime, 1.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+	}
+}
+
+void MyDPSRenderer::RenderFloatingText(MyDPSEngine& engine)
+{
+	if (!engine.settings.showFCT)
+		return;
+
+	auto now = std::chrono::steady_clock::now();
+	float dt = std::chrono::duration<float>(now - m_lastFCTUpdate).count();
+	m_lastFCTUpdate = now;
+
+	if (dt <= 0.0f || dt > 0.1f)
+		dt = 0.016f;
+
+	engine.fctManager.Update(dt);
+	engine.fctManager.Render(engine.settings);
 }
