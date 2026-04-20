@@ -17,6 +17,7 @@
         <li><a href="parsing.html">Chat Parsing</a></li>
         <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
         <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
         <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
         <li><a href="mychat-integration.html" class="active">MQMyChat Integration</a></li>
     </ul>
@@ -114,13 +115,20 @@
             <tr><td><code>\ar</code></td><td>Red</td><td>Damage target names (in per-target lines)</td></tr>
             <tr><td><code>\ao</code></td><td>Orange</td><td>"Healed" label in per-heal-target lines</td></tr>
             <tr><td><code>\ap</code></td><td>Purple</td><td>Spawn ID numbers in target labels</td></tr>
-            <tr><td><code>\ax</code></td><td>Default</td><td>Reset to default color after a colored segment</td></tr>
+            <tr><td><code>\ax</code></td><td>(pop)</td><td>Pops the last color off the color stack, returning to the previous color</td></tr>
         </tbody>
     </table>
 
-    <p>The <code>\ax</code> code resets the color to the default chat text color. It is
-    placed after every colored segment to ensure subsequent text returns to normal. Without
-    it, the color would bleed into the next line.</p>
+    <p>The <code>\ax</code> code pops the most recent color off MQ's color stack, returning
+    to whatever color was active before. For example, <code>\aysome text \agother text\ax
+    this is yellow</code> &mdash; the <code>\ax</code> pops green and returns to yellow, not
+    to the default color.</p>
+
+    <p>The color stack is scoped per line &mdash; it resets naturally at line boundaries.
+    This means you <em>can</em> chain color codes without popping
+    (<code>\arRed \aoOrange \ayYellow \agGreen</code>) and the next line starts clean, but
+    this grows the stack unnecessarily. Using <code>\ax</code> to pop after each colored
+    segment is the cleaner practice and what MQMyDPS follows throughout.</p>
 
     <h2>What Gets Sent and When</h2>
 

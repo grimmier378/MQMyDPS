@@ -17,6 +17,7 @@
         <li><a href="parsing.html">Chat Parsing</a></li>
         <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
         <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
         <li><a href="commands-tlo.html" class="active">Commands &amp; TLO</a></li>
         <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
     </ul>
@@ -35,7 +36,7 @@
     <code>ci_equals()</code>. If no argument is given, the main window is toggled.</p>
 
     <p>The help text printed for any unrecognized argument lists all available subcommands:</p>
-    <pre><code>[MQMyDPS] Commands: start, stop, reset, report, show, hide, spam, lock, config</code></pre>
+    <pre><code>[MQMyDPS] Commands: start, stop, reset, report, show, hide, spam, lock, fct, config</code></pre>
 
     <table>
         <thead><tr><th>Command</th><th>Action</th><th>Notes</th></tr></thead>
@@ -73,6 +74,16 @@
                 draggable. Prints "locked" or "unlocked" to chat.</td>
             </tr>
             <tr>
+                <td><code>/mydps fct</code></td>
+                <td>Toggle floating combat text</td>
+                <td>Flips <code>settings.showFCT</code>. When enabled, damage and heal
+                numbers appear as animated floating text in the game world. Prints
+                "enabled" or "disabled" to chat. Individual damage types (melee, DD, DoT,
+                pet, crit, heals, crit heals, hit by) can be toggled in the config window.
+                The setting is persisted in the <code>[FCT]</code> INI section as
+                <code>Enabled</code>.</td>
+            </tr>
+            <tr>
                 <td><code>/mydps start</code></td>
                 <td>Start damage tracking</td>
                 <td>Sets <code>tracking = true</code>. If no session damage has been
@@ -90,8 +101,8 @@
                 <td><code>/mydps reset</code></td>
                 <td>Clear all data</td>
                 <td>Calls <code>ResetAll()</code>: clears recentRecords, currentTargets,
-                currentHealTargets, battleHistory, activeDoTs, all counters, and resets
-                sessionStartTime.</td>
+                currentHealTargets, battleHistory, activeDoTs, FCT entries, all counters,
+                and resets sessionStartTime.</td>
             </tr>
             <tr>
                 <td><code>/mydps report</code></td>
@@ -174,8 +185,9 @@
             </tr>
             <tr>
                 <td><code>TargetCount</code></td><td>int</td>
-                <td>Number of distinct spawn entries in <code>currentTargets</code> for
-                the active battle. Returns 0 when not in combat.</td>
+                <td>Number of distinct spawn entries in <code>currentTargets</code>.
+                In practice this is the active battle's target count; after
+                <code>FinalizeBattle()</code> clears the map it returns 0.</td>
             </tr>
             <tr>
                 <td><code>BattleCount</code></td><td>int</td>
@@ -304,6 +316,19 @@
             <tr><td>Battle End Delay (s)</td><td>BattleEndDelay</td><td>battleEndDelay</td><td>10</td><td>Seconds out of combat before the current battle is finalized.</td></tr>
             <tr><td>Font Scale</td><td>FontScale</td><td>fontScale</td><td>1.0</td><td>Multiplier for main and config window font size. Range 0.5&ndash;2.0.</td></tr>
             <tr><td>Spam Font Scale</td><td>SpamFontScale</td><td>spamFontScale</td><td>1.0</td><td>Multiplier for combat spam overlay font size. Range 0.5&ndash;2.0.</td></tr>
+            <tr><td>Enable FCT</td><td>Enabled ([FCT] section)</td><td>showFCT</td><td>false</td><td>Master toggle for floating combat text. Toggle with <code>/mydps fct</code>.</td></tr>
+            <tr><td>FCT Melee</td><td>Melee ([FCT] section)</td><td>showFCT_Melee</td><td>true</td><td>Show floating text for melee hits</td></tr>
+            <tr><td>FCT DD</td><td>DD ([FCT] section)</td><td>showFCT_DD</td><td>true</td><td>Show floating text for direct damage spells</td></tr>
+            <tr><td>FCT DoT</td><td>DoT ([FCT] section)</td><td>showFCT_DoT</td><td>true</td><td>Show floating text for DoT ticks</td></tr>
+            <tr><td>FCT Pet</td><td>Pet ([FCT] section)</td><td>showFCT_Pet</td><td>true</td><td>Show floating text for pet damage</td></tr>
+            <tr><td>FCT Crit</td><td>Crit ([FCT] section)</td><td>showFCT_Crit</td><td>true</td><td>Show floating text for critical hits</td></tr>
+            <tr><td>FCT Heals</td><td>Heals ([FCT] section)</td><td>showFCT_Heals</td><td>true</td><td>Show floating text for direct heals</td></tr>
+            <tr><td>FCT Crit Heals</td><td>CritHeals ([FCT] section)</td><td>showFCT_CritHeals</td><td>true</td><td>Show floating text for critical heals</td></tr>
+            <tr><td>FCT Hit By</td><td>HitBy ([FCT] section)</td><td>showFCT_HitBy</td><td>true</td><td>Show floating text for incoming damage</td></tr>
+            <tr><td>FCT Lifetime</td><td>Lifetime ([FCT] section)</td><td>fctLifetime</td><td>2.5</td><td>Seconds each FCT number floats before fading</td></tr>
+            <tr><td>FCT Base Font Size</td><td>BaseFontSize ([FCT] section)</td><td>fctBaseFontSize</td><td>24.0</td><td>Base font size in pixels for FCT</td></tr>
+            <tr><td>FCT Font Scale</td><td>FontScale ([FCT] section)</td><td>fctFontScale</td><td>1.5</td><td>Scale multiplier for FCT font size</td></tr>
+            <tr><td>FCT Shadow Offset</td><td>ShadowOffset ([FCT] section)</td><td>fctShadowOffset</td><td>2.0</td><td>Pixel offset for drop shadow behind FCT text</td></tr>
         </tbody>
     </table>
 
@@ -340,7 +365,7 @@ end</code></pre>
 }</code></pre>
 
     <div class="page-nav">
-        <strong>Previous:</strong> <a href="rendering.html">ImGui Rendering</a> |
+        <strong>Previous:</strong> <a href="fct.html">Floating Combat Text</a> |
         <strong>Next:</strong> <a href="mychat-integration.html">MQMyChat Integration</a>
     </div>
 </main>

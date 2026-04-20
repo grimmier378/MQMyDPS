@@ -17,6 +17,7 @@
         <li><a href="parsing.html">Chat Parsing</a></li>
         <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
         <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
         <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
         <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
     </ul>
@@ -38,10 +39,13 @@
     <p>The fundamental challenge in building a DPS tracker for EverQuest is that the game's
     combat chat text never includes spawn IDs. If you fight two mobs both named "a skeleton",
     every hit message just says "a skeleton" &mdash; there is no way to distinguish them from
-    chat text alone. The Lua version of this tracker had this limitation. The C++ version
-    overcomes it by reading live game state directly: your current target's spawn ID, your
-    pet's attack target, the spell you just finished casting, and your extended target
-    (XTarget) list.</p>
+    chat text alone. Lua scripts can read target spawn IDs through TLOs, but because Lua
+    event callbacks only fire when <code>mq.doevents()</code> is called, the player's target
+    may change between the chat event and when the callback processes it &mdash; leading to
+    misidentified spawns. The more frequently <code>mq.doevents()</code> is called, the more
+    reliable it becomes, but there is always a timing window. The C++ plugin avoids this
+    entirely by resolving spawn IDs synchronously inside the <code>OnIncomingChat</code>
+    callback, where game state is guaranteed to match the chat line being processed.</p>
 
     <p>Here is what the plugin provides:</p>
 
@@ -79,6 +83,15 @@
         <li><strong>MQMyChat integration:</strong> If MQMyChat is loaded, battle summaries,
         heal reports, and the <code>/mydps report</code> command output are automatically
         sent to a dedicated "MyDPS" channel in MQMyChat using MQ color codes.</li>
+        <li><strong>Floating combat text (FCT):</strong> Bone-anchored floating numbers
+        rendered directly over mob heads in the 3D game world. Uses the head bone for
+        position projection when available, with avatar-height fallback. Features
+        pop-in animation (scale from 1.4x to 1.0x), upward float, fade-out, drop shadow,
+        alternating left/right spread, and per-type toggles (Melee, DD, DoT, Pet, Crit,
+        Heals, Crit Heals, Hit By). Each type uses a distinct color from user color settings
+        &mdash; melee uses the "hit" color key since melee subtypes (crush, slash, etc.) are
+        only distinguished in the combat spam overlay. Configurable via <code>/mydps fct</code>
+        and the <code>[FCT]</code> INI section.</li>
         <li><strong>TLO API:</strong> Exposes DPS data to macros and Lua scripts via
         <code>${MyDPS.DPS}</code>, <code>${MyDPS.Target[id].TotalDamage}</code>, etc.</li>
         <li><strong>Per-character settings:</strong> All configuration is saved to INI files
@@ -151,6 +164,16 @@
                 graph scroll offset (<code>m_graphOffset</code>).</td>
             </tr>
             <tr>
+                <td><code>MyDPSFloatingText.h</code></td>
+                <td>Header-only FCT (floating combat text) system.
+                <code>FCTEntry</code> struct and <code>FCTManager</code> class with
+                bone-anchored 3D-to-screen projection, pop-in animation, drop shadow,
+                alternating spread, fade-out, and a 64-entry ring buffer. Uses
+                <code>eqlib/graphics/CameraInterface.h</code>,
+                <code>eqlib/graphics/Bones.h</code>, and
+                <code>eqlib/graphics/Actors.h</code>.</td>
+            </tr>
+            <tr>
                 <td><code>MyDPSTLO.cpp</code></td>
                 <td>TLO implementation. Exposes DPS data via <code>${MyDPS}</code>
                 top-level object with target lookup by spawn ID or name.</td>
@@ -201,7 +224,10 @@
                 <td><strong>eqlib</strong></td>
                 <td>EverQuest game structures. Provides <code>PlayerClient</code>,
                 <code>LaunchSpellData</code> (CastingData), <code>EQ_Spell</code>,
-                <code>ExtendedTargetSlot</code>, and spawn type constants.</td>
+                <code>ExtendedTargetSlot</code>, spawn type constants, and graphics
+                headers (<code>CameraInterface</code>, <code>Bones</code>,
+                <code>Actors</code>) used by the FCT system for bone-anchored
+                3D-to-screen projection.</td>
             </tr>
             <tr>
                 <td><strong>MQMyChat (optional)</strong></td>
@@ -250,6 +276,10 @@
         <a href="rendering.html">
             <strong>ImGui Rendering</strong>
             Combat spam, 5-tab main window, color system, Healing tab, graphs, config.
+        </a>
+        <a href="fct.html">
+            <strong>Floating Combat Text</strong>
+            Bone-anchored 3D numbers with pop/float/fade animation, per-type toggles.
         </a>
         <a href="commands-tlo.html">
             <strong>Commands &amp; TLO</strong>

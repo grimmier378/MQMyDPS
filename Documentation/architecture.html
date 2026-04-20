@@ -17,6 +17,7 @@
         <li><a href="parsing.html">Chat Parsing</a></li>
         <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
         <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
         <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
         <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
     </ul>
@@ -72,6 +73,10 @@ MyDPSEngine::RecordDamage()
     |-- If CritHeal and inCombat:
     |       battleCritHeals += damage
     |
+    |-- If targetSpawnID still 0 and event is incoming (HitBy/HitByNonMelee/MissedMe/DirectHeal/CritHeal):
+    |       assign pLocalPlayer->SpawnID (anchor FCT to your character)
+    |
+    |-- fctManager.AddEntry(record, settings)  -->  floating combat text entry
     |-- Append to recentRecords deque
     |
     v
@@ -85,6 +90,7 @@ OnUpdateImGui
     |-- RenderMainWindow()    -->  tabs: Current Battle, History, Targets, Healing, Graphs
     |-- RenderConfigWindow()  -->  separate data-driven settings window
     |-- RenderCombatSpam()    -->  floating overlay (newest-at-top, click-through option)
+    |-- RenderFloatingText()  -->  bone-anchored FCT with pop/float/fade animation
     |
     v
 FinalizeBattle() (when battle ends after delay)
@@ -117,10 +123,13 @@ FinalizeBattle() (when battle ends after delay)
 MyDPSData.h  (structs only, no dependencies beyond mq/Plugin.h for ImVec4)
     ^
     |
-MQMyDPS.h  (includes MyDPSData.h, declares MyDPSEngine)
+MyDPSFloatingText.h  (includes MyDPSData.h, FCTEntry struct + FCTManager class)
+    ^
+    |
+MQMyDPS.h  (includes MyDPSData.h + MyDPSFloatingText.h, declares MyDPSEngine)
     ^
     |--- MyDPSParser.h  (includes MyDPSData.h)
-    |--- MyDPSRenderer.h  (forward declares MyDPSEngine)
+    |--- MyDPSRenderer.h  (forward declares MyDPSEngine, owns m_lastFCTUpdate)
     |--- MyDPSTLO.h  (includes mq/Plugin.h)
     |
 MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementation)
@@ -162,6 +171,10 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         <li><code>battlePetDamage</code> / <code>battleNonMeleeDmg</code> &mdash; Battle-level
         counters for pet damage (PetMelee + PetNonMelee combined) and non-melee spell damage
         (NonMelee type). These feed into <code>BattleData</code> at finalization.</li>
+        <li><code>fctManager</code> &mdash; <code>FCTManager</code> instance that owns the
+        floating combat text ring buffer. Receives entries from <code>RecordDamage</code>,
+        updated and rendered each frame by <code>MyDPSRenderer::RenderFloatingText()</code>.
+        Cleared on zone and on reset.</li>
         <li>Session and battle accumulators (damage, hits, crits, DoTs).</li>
         <li><code>m_myChatLoaded</code> &mdash; cached result of
         <code>IsPluginLoaded("MQMyChat")</code>, set once during
@@ -180,17 +193,19 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
     scanning handles perfectly.</p>
 
     <p>Pet methods are skipped entirely if the pet name is empty (no pet summoned), saving
-    the cost of those checks on most lines. The 14th method, <code>TryParseDirectHeal</code>,
+    the cost of those checks on most lines. The 11th method, <code>TryParseDirectHeal</code>,
     handles two EQ heal message formats: the basic
     <code>"You have healed X for N points."</code> and the spell-name variant
     <code>"You have healed X for N hit points with your Spell Name."</code></p>
 
     <h3>MyDPSRenderer</h3>
 
-    <p>Read-only view of engine state. Draws three windows: main report window (5 tabs),
-    config window, and combat spam overlay. Uses ImPlot for graphs.</p>
+    <p>Read-only view of engine state. Makes four render calls per frame: main report
+    window (5 tabs), config window, combat spam overlay, and floating combat text. Uses
+    ImPlot for graphs. All three windowed render calls implement a save-on-close pattern
+    that persists settings when the user closes a window via its X button.</p>
 
-    <p>The renderer holds its own per-session state for the Graphs tab:</p>
+    <p>The renderer holds its own per-session state:</p>
 
     <ul>
         <li><code>m_showPieChart</code> (default: false) &mdash; Toggle for the pie chart</li>
@@ -199,6 +214,8 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         <li><code>m_graphOffset</code> (default: 0) &mdash; Scroll position for the
         scrollable graph window, which displays 50 battles at a time and can scroll
         back through up to 250 battles of history</li>
+        <li><code>m_lastFCTUpdate</code> &mdash; Timestamp of the last FCT update, used
+        to compute delta-time for the floating combat text animation system</li>
     </ul>
 
     <p>All three chart types (line, bar, pie) can be shown simultaneously via independent
@@ -345,6 +362,15 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         <li><code>damageColors</code>: an <code>unordered_map&lt;string, ImVec4&gt;</code>
         mapping color keys to RGBA values. Includes keys for damage types, stat display
         colors, and entity name colors. See the full color key table below.</li>
+        <li><code>showFCT</code> (default false): master toggle for floating combat text.</li>
+        <li>Per-type FCT toggles: <code>showFCT_Melee</code>, <code>showFCT_DD</code>,
+        <code>showFCT_DoT</code>, <code>showFCT_Pet</code>, <code>showFCT_Crit</code>,
+        <code>showFCT_Heals</code>, <code>showFCT_CritHeals</code>,
+        <code>showFCT_HitBy</code> (all default true).</li>
+        <li><code>fctBaseFontSize</code> (default 24.0): base pixel size for FCT text.</li>
+        <li><code>fctFontScale</code> (default 1.5): multiplied with base font size for final size.</li>
+        <li><code>fctShadowOffset</code> (default 2.0): pixel offset for the drop shadow, scaled proportionally to font size.</li>
+        <li><code>fctLifetime</code> (default 2.5s): how long each FCT entry floats before fading out.</li>
     </ul>
 
     <h2>DamageType Enum and Color Keys</h2>
@@ -395,12 +421,57 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
     </table>
 
     <div class="tip">
-        <strong>Why do PetMelee and PetNonMelee share color keys with non-pet types?</strong>
-        The color key lookup is purely for the combat spam overlay display. Pet hits use "hit"
-        (plain white) and pet spells use "non-melee" (cyan) because those are visually
-        appropriate defaults. The <code>DamageType</code> enum still distinguishes them for
-        accounting purposes &mdash; only the display color is shared.
+        <strong>Color key resolution differs between combat spam and FCT.</strong>
+        In the combat spam overlay, melee events use the attack verb (crush, slash, etc.)
+        as the color key for per-verb coloring, while all other types use
+        <code>DamageTypeToColorKey</code>. Pet types always use the <code>"pet"</code>
+        color key in both combat spam and FCT. In FCT, melee also uses a single
+        <code>"hit"</code> key (verb-level coloring would be too noisy for floating text).
+        All colors are user-configurable through the Colors section in the config window.
     </div>
+
+    <h2>Floating Combat Text (FCT) System</h2>
+
+    <p>The FCT system renders damage and heal numbers anchored to the 3D position of the
+    target spawn, projected onto the 2D screen. Numbers pop in enlarged (1.4x), float
+    upward (150px), and fade out after 60% of their lifetime. The system uses a 64-entry
+    ring buffer managed by <code>FCTManager</code>, with bone-anchored 3D-to-screen
+    projection via <code>eqlib/graphics</code> headers.</p>
+
+    <p>Key aspects: a 5-stage filter chain in <code>AddEntry</code> (master toggle,
+    spawn ID, miss, damage, per-type toggle), pet color override to "pet" key,
+    alternating fan spread for rapid hits, head bone projection with avatar-height
+    fallback, and drop shadow rendering to ImGui's background draw list.</p>
+
+    <p>For comprehensive details on the FCT architecture, animation formulas, projection
+    math, entry creation, type filtering, and configuration, see the dedicated
+    <a href="fct.html">Floating Combat Text</a> page.</p>
+
+    <h2>Save-on-Close Window Behavior</h2>
+
+    <p>All three closeable windows (Main, Config, Combat Spam) implement a save-on-close
+    pattern. Before drawing, each caches its open state. After <code>ImGui::End()</code>,
+    if the window was open before but is now closed (user clicked the X button), it calls
+    <code>engine.SaveCharacterSettings()</code>. This ensures the window visibility state
+    is persisted to the INI immediately when the user closes a window.</p>
+
+    <pre><code>bool wasOpen = engine.showMainWindow;
+if (ImGui::Begin(windowName.c_str(), &amp;engine.showMainWindow, ...))
+{ /* ... */ }
+ImGui::End();
+if (wasOpen &amp;&amp; !engine.showMainWindow)
+    engine.SaveCharacterSettings();</code></pre>
+
+    <p>This pattern is repeated identically for <code>showConfigWindow</code> and
+    <code>showCombatSpam</code>.</p>
+
+    <h2>OnBeginZone: Save Before Clear</h2>
+
+    <p>When the player begins zoning, <code>OnBeginZone</code> saves all current settings
+    to disk before clearing transient state. This ensures that any setting changes made
+    during the session (including window positions saved by ImGui) are not lost. After
+    saving, it sets <code>inCombat = false</code>, clears <code>activeDoTs</code>, and
+    clears the FCT manager. Battle history and session data are preserved across zones.</p>
 
     <h2>Complete Data Flow: Healing Example</h2>
 

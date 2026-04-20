@@ -45,7 +45,9 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 				continue;
 
 			const char* colorKey;
-			if (rec.type == DamageType::Melee || rec.type == DamageType::PetMelee)
+			if (rec.type == DamageType::PetMelee || rec.type == DamageType::PetNonMelee)
+				colorKey = "pet";
+			else if (rec.type == DamageType::Melee)
 				colorKey = rec.attackVerb.c_str();
 			else
 				colorKey = DamageTypeToColorKey(rec.type);

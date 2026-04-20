@@ -17,6 +17,7 @@
         <li><a href="parsing.html">Chat Parsing</a></li>
         <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
         <li><a href="rendering.html" class="active">ImGui Rendering</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
         <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
         <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
     </ul>
@@ -41,34 +42,59 @@
     UI data structure. Every frame, <code>MyDPSRenderer</code> reads whatever is currently
     in <code>MyDPSEngine</code> and draws it. No synchronization needed.</p>
 
-    <h2>Three Windows</h2>
+    <h2>Four Render Calls</h2>
 
-    <p><code>MyDPSRenderer</code> draws three independent windows per frame. Each checks
-    its own visibility flag before doing any work:</p>
+    <p><code>MyDPSRenderer</code> makes four render calls per frame. Three are windowed ImGui
+    windows that check their own visibility flag; the fourth is the floating combat text
+    system that draws directly to the background draw list:</p>
 
     <table>
-        <thead><tr><th>Window</th><th>Toggle</th><th>Visibility flag</th><th>Description</th></tr></thead>
+        <thead><tr><th>Render Call</th><th>Toggle</th><th>Visibility flag</th><th>Description</th></tr></thead>
         <tbody>
             <tr>
-                <td>DPS Report</td>
+                <td>RenderMainWindow</td>
                 <td><code>/mydps</code> or <code>show/hide</code></td>
                 <td><code>engine.showMainWindow</code></td>
                 <td>Main window with menu bar and 5 tabs. Font scaled by <code>fontScale</code>.</td>
             </tr>
             <tr>
-                <td>DPS Config</td>
+                <td>RenderConfigWindow</td>
                 <td><code>/mydps config</code> or Config menu item</td>
                 <td><code>engine.showConfigWindow</code></td>
                 <td>Separate settings window with data-driven layout. Font scaled by <code>fontScale</code>.</td>
             </tr>
             <tr>
-                <td>Combat Spam</td>
+                <td>RenderCombatSpam</td>
                 <td><code>/mydps spam</code> or "Show Combat Spam" checkbox</td>
-                <td><code>engine.showCombatSpam</code></td>
-                <td>Floating overlay with recent events newest-at-top. Font scaled by <code>spamFontScale</code>.</td>
+                <td><code>engine.showCombatSpam &amp;&amp; engine.tracking</code></td>
+                <td>Floating overlay with recent events newest-at-top. Requires both visibility flag and tracking to be active. Font scaled by <code>spamFontScale</code>.</td>
+            </tr>
+            <tr>
+                <td>RenderFloatingText</td>
+                <td><code>/mydps fct</code> or "Enable FCT" checkbox</td>
+                <td><code>engine.settings.showFCT</code></td>
+                <td>Bone-anchored floating combat text with pop/float/fade animation. Draws to background draw list.</td>
             </tr>
         </tbody>
     </table>
+
+    <h3>Save-on-Close Pattern</h3>
+
+    <p>All three closeable windows (Main, Config, Combat Spam) implement a save-on-close
+    pattern. Before drawing, the renderer caches the window's open state. After
+    <code>ImGui::End()</code>, if the window transitioned from open to closed (user
+    clicked the X button), it calls <code>engine.SaveCharacterSettings()</code> to
+    persist the updated visibility state to the INI file immediately.</p>
+
+    <pre><code>bool wasOpen = engine.showMainWindow;
+if (ImGui::Begin(windowName.c_str(), &amp;engine.showMainWindow, ...))
+{ /* ... */ }
+ImGui::End();
+if (wasOpen &amp;&amp; !engine.showMainWindow)
+    engine.SaveCharacterSettings();</code></pre>
+
+    <p>This pattern is repeated identically for all three windows. The RenderFloatingText
+    call does not have this pattern because it is not a windowed element.</p>
 
     <h2>The Color Lookup Lambda</h2>
 
@@ -516,16 +542,18 @@ BoolEntry bools[] = {
 
     <h3>CollapsingHeaders</h3>
 
-    <p>Settings are organized into four collapsible sections, all open by default
-    (<code>ImGuiTreeNodeFlags_DefaultOpen</code>):</p>
+    <p>Settings are organized into five collapsible sections. The first four are open by
+    default (<code>ImGuiTreeNodeFlags_DefaultOpen</code>); the FCT section is collapsed
+    by default:</p>
 
     <table>
-        <thead><tr><th>Section</th><th>Contents</th><th>Column width (pixels per col)</th></tr></thead>
+        <thead><tr><th>Section</th><th>Contents</th><th>Column width (pixels per col)</th><th>Default state</th></tr></thead>
         <tbody>
-            <tr><td>Display</td><td>All bool checkboxes (12 entries)</td><td>165</td></tr>
-            <tr><td>Timing</td><td>Int sliders (Display Time, Battle End Delay)</td><td>220</td></tr>
-            <tr><td>Scale</td><td>Float sliders (Font Scale, Spam Font Scale)</td><td>220</td></tr>
-            <tr><td>Colors</td><td>Background color + all damageColors entries</td><td>150</td></tr>
+            <tr><td>Display</td><td>All bool checkboxes (12 entries)</td><td>165</td><td>Open</td></tr>
+            <tr><td>Timing</td><td>Int sliders (Display Time, Battle End Delay)</td><td>220</td><td>Open</td></tr>
+            <tr><td>Scale</td><td>Float sliders (Font Scale, Spam Font Scale)</td><td>220</td><td>Open</td></tr>
+            <tr><td>Colors</td><td>Background color + all damageColors entries</td><td>150</td><td>Open</td></tr>
+            <tr><td>Floating Combat Text</td><td>FCT master toggle, 8 per-type toggles, 4 sliders</td><td>120 (toggles)</td><td>Collapsed</td></tr>
         </tbody>
     </table>
 
@@ -557,9 +585,66 @@ int col = std::max(1, sizeX / 165);  // For Display section</code></pre>
     using <code>ImGuiColorEditFlags_NoInputs</code> to show only the colored swatch,
     keeping the section compact.</p>
 
+    <h3>Floating Combat Text Section</h3>
+
+    <p>The FCT section of the config window is collapsed by default (no
+    <code>DefaultOpen</code> flag). It contains:</p>
+
+    <ul>
+        <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling
+        <code>settings.showFCT</code>.</li>
+    </ul>
+
+    <p>Below the master toggle, 8 per-type checkboxes are rendered in a dynamic-column
+    table (120px per column):</p>
+
+    <table>
+        <thead><tr><th>Label</th><th>Setting</th><th>Default</th></tr></thead>
+        <tbody>
+            <tr><td>Melee</td><td><code>showFCT_Melee</code></td><td>true</td></tr>
+            <tr><td>DD</td><td><code>showFCT_DD</code></td><td>true</td></tr>
+            <tr><td>DoT</td><td><code>showFCT_DoT</code></td><td>true</td></tr>
+            <tr><td>Pet</td><td><code>showFCT_Pet</code></td><td>true</td></tr>
+            <tr><td>Crit</td><td><code>showFCT_Crit</code></td><td>true</td></tr>
+            <tr><td>Heals</td><td><code>showFCT_Heals</code></td><td>true</td></tr>
+            <tr><td>Crit Heals</td><td><code>showFCT_CritHeals</code></td><td>true</td></tr>
+            <tr><td>Hit By</td><td><code>showFCT_HitBy</code></td><td>true</td></tr>
+        </tbody>
+    </table>
+
+    <p>Below the toggles, 4 sliders control the visual properties:</p>
+
+    <table>
+        <thead><tr><th>Label</th><th>Setting</th><th>Range</th><th>Default</th><th>Format</th></tr></thead>
+        <tbody>
+            <tr><td>Base Font Size</td><td><code>fctBaseFontSize</code></td><td>12.0 &ndash; 48.0</td><td>24.0</td><td>%.0f</td></tr>
+            <tr><td>Font Scale</td><td><code>fctFontScale</code></td><td>0.5 &ndash; 3.0</td><td>1.5</td><td>%.2f</td></tr>
+            <tr><td>Shadow Offset</td><td><code>fctShadowOffset</code></td><td>0.0 &ndash; 5.0</td><td>2.0</td><td>%.1f</td></tr>
+            <tr><td>Lifetime (s)</td><td><code>fctLifetime</code></td><td>1.0 &ndash; 5.0</td><td>2.5</td><td>%.1f</td></tr>
+        </tbody>
+    </table>
+
+    <p>All 4 sliders use <code>ImGuiSliderFlags_AlwaysClamp</code> to prevent values outside
+    the specified range. Each slider has a fixed width of 100 pixels.</p>
+
+    <h2>Floating Combat Text Rendering</h2>
+
+    <p><code>RenderFloatingText</code> is the fourth render call made from
+    <code>OnUpdateImGui</code>. Unlike the other three, it does not create an ImGui window.
+    Instead, it computes a delta-time from <code>m_lastFCTUpdate</code> (stored on the
+    renderer), clamps it to 16ms if out of range, then delegates to the FCT manager for
+    update and render passes. The FCT manager draws directly to
+    <code>ImGui::GetBackgroundDrawList()</code>, which renders behind all ImGui windows
+    but on top of the EQ game world.</p>
+
+    <p>For full details on the FCT system &mdash; including the entry creation filter chain,
+    bone-anchored projection math, animation formulas (pop-in, float, fade), drop shadow
+    rendering, type filtering, and configuration &mdash; see the dedicated
+    <a href="fct.html">Floating Combat Text</a> page.</p>
+
     <div class="page-nav">
         <strong>Previous:</strong> <a href="spawn-tracking.html">Spawn ID Tracking</a> |
-        <strong>Next:</strong> <a href="commands-tlo.html">Commands &amp; TLO</a>
+        <strong>Next:</strong> <a href="fct.html">Floating Combat Text</a>
     </div>
 </main>
 

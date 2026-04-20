@@ -17,6 +17,7 @@
         <li><a href="parsing.html">Chat Parsing</a></li>
         <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
         <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
         <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
         <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
     </ul>
@@ -90,15 +91,19 @@
                 <td>Every render frame, inside ImGui's render pass. Only when
                 <code>GAMESTATE_INGAME</code>.</td>
                 <td>Calls <code>RenderMainWindow</code>, <code>RenderConfigWindow</code>,
-                and <code>RenderCombatSpam</code> on the renderer. Each function checks
-                its own visibility flag first, so invisible windows cost almost nothing.</td>
+                <code>RenderCombatSpam</code>, and <code>RenderFloatingText</code> on the
+                renderer. Each function checks its own visibility flag first, so invisible
+                windows cost almost nothing.</td>
             </tr>
             <tr>
                 <td><code>OnBeginZone</code></td>
                 <td>When the player begins zoning (before the zone load).</td>
-                <td>Clears <code>inCombat</code> flag and the entire <code>activeDoTs</code>
-                registry. All spawn IDs from the old zone are now invalid, so DoT
-                attribution must start fresh in the new zone.</td>
+                <td>First calls <code>SaveCharacterSettings()</code> to persist current
+                settings to INI, then clears <code>inCombat</code> flag, the entire
+                <code>activeDoTs</code> registry, and calls <code>fctManager.Clear()</code>
+                to remove all floating combat text entries. All spawn IDs from the old
+                zone are now invalid, so DoT attribution and FCT must start fresh in
+                the new zone.</td>
             </tr>
             <tr>
                 <td><code>OnRemoveSpawn</code></td>
@@ -181,10 +186,11 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
     combat flag transitions after your last hit, giving a reliable "you are no longer
     fighting anything" signal.</p>
 
-    <p>Note that heal events (<code>DirectHeal</code>, <code>CritHeal</code>) do <em>not</em>
-    trigger combat entry on their own. <code>isDamageOut</code> excludes heal types explicitly.
-    Heals only contribute to the battle totals if you are already in combat (i.e., you dealt
-    damage first).</p>
+    <p>Note that heal events (<code>DirectHeal</code>, <code>CritHeal</code>) and incoming
+    damage events (<code>HitBy</code>, <code>HitByNonMelee</code>, <code>MissedMe</code>) do
+    <em>not</em> trigger combat entry on their own. <code>isDamageOut</code> excludes all five
+    of these types explicitly. Heals only contribute to the battle totals if you are already
+    in combat (i.e., you dealt damage first).</p>
 
     <h3>Why the Battle End Delay Exists</h3>
 
@@ -200,7 +206,7 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
     <p><code>FinalizeBattle()</code> creates a <code>BattleData</code> snapshot:</p>
     <ol>
         <li>Increments <code>battleCounter</code> and stores it as <code>battleNumber</code></li>
-        <li>Copies session counters into the battle struct, including <code>battlePetDamage</code>,
+        <li>Copies battle counters into the battle struct, including <code>battlePetDamage</code>,
         <code>battleNonMeleeDmg</code>, <code>battleDirectHeals</code>, and
         <code>battleCritHeals</code></li>
         <li>Computes DPS and average damage</li>
@@ -211,10 +217,10 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
         <li>Sends a colored summary to MQMyChat if <code>m_myChatLoaded</code> is true,
         listing per-target DPS breakdown and per-player heal totals</li>
         <li>Pushes the completed battle to <code>battleHistory</code></li>
+        <li>Sets <code>inCombat = false</code> and <code>m_combatEndPending = false</code></li>
         <li>Resets all battle counters (damage, heals, hits) to zero</li>
         <li>Clears <code>currentTargets</code> and <code>currentHealTargets</code>
-        (both were emptied by the move)</li>
-        <li>Sets <code>inCombat = false</code> and <code>m_combatEndPending = false</code></li>
+        (both were emptied by the move, but explicitly cleared for safety)</li>
     </ol>
 
     <div class="note">
@@ -244,9 +250,13 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
         <code>m_myChatLoaded</code> is set by calling
         <code>IsPluginLoaded("MQMyChat")</code>.</li>
         <li><code>SaveCharacterSettings()</code> is called in <code>Shutdown()</code>
-        (plugin unload) and in <code>UnloadCharacterSettings()</code> (char select).</li>
+        (plugin unload), in <code>UnloadCharacterSettings()</code> (char select), and
+        in <code>OnBeginZone()</code> (before clearing combat state).</li>
         <li>The Save button in the config window also calls <code>SaveCharacterSettings()</code>
         immediately and closes the config window.</li>
+        <li><strong>Save-on-close:</strong> When any window (main, config, or combat spam)
+        is closed via the X button, the renderer detects the visibility transition and
+        calls <code>SaveCharacterSettings()</code> to persist the new window state.</li>
     </ul>
 
     <h3>INI Sections and Keys</h3>
@@ -277,6 +287,19 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
             <tr><td><code>[Windows]</code></td><td>ShowMain</td><td>bool</td><td>true</td><td>Main window visibility on load</td></tr>
             <tr><td><code>[Windows]</code></td><td>ShowConfig</td><td>bool</td><td>false</td><td>Config window visibility on load</td></tr>
             <tr><td><code>[Windows]</code></td><td>ShowCombatSpam</td><td>bool</td><td>true</td><td>Spam overlay visibility on load. Controlled at runtime via /mydps spam or "Show Combat Spam" checkbox.</td></tr>
+            <tr><td><code>[FCT]</code></td><td>Enabled</td><td>bool</td><td>false</td><td>Master toggle for floating combat text. Controlled at runtime via <code>/mydps fct</code>.</td></tr>
+            <tr><td><code>[FCT]</code></td><td>Melee</td><td>bool</td><td>true</td><td>Show FCT for melee hits</td></tr>
+            <tr><td><code>[FCT]</code></td><td>DD</td><td>bool</td><td>true</td><td>Show FCT for direct damage spells</td></tr>
+            <tr><td><code>[FCT]</code></td><td>DoT</td><td>bool</td><td>true</td><td>Show FCT for damage-over-time ticks</td></tr>
+            <tr><td><code>[FCT]</code></td><td>Pet</td><td>bool</td><td>true</td><td>Show FCT for pet damage</td></tr>
+            <tr><td><code>[FCT]</code></td><td>Crit</td><td>bool</td><td>true</td><td>Show FCT for critical hits</td></tr>
+            <tr><td><code>[FCT]</code></td><td>Heals</td><td>bool</td><td>true</td><td>Show FCT for direct heals</td></tr>
+            <tr><td><code>[FCT]</code></td><td>CritHeals</td><td>bool</td><td>true</td><td>Show FCT for critical heals</td></tr>
+            <tr><td><code>[FCT]</code></td><td>HitBy</td><td>bool</td><td>true</td><td>Show FCT for incoming damage (HitBy and HitByNonMelee)</td></tr>
+            <tr><td><code>[FCT]</code></td><td>Lifetime</td><td>float</td><td>2.5</td><td>Seconds each FCT entry remains visible before fading</td></tr>
+            <tr><td><code>[FCT]</code></td><td>BaseFontSize</td><td>float</td><td>24.0</td><td>Base font size in pixels for FCT rendering</td></tr>
+            <tr><td><code>[FCT]</code></td><td>FontScale</td><td>float</td><td>1.5</td><td>Font scale multiplier applied on top of BaseFontSize for FCT</td></tr>
+            <tr><td><code>[FCT]</code></td><td>ShadowOffset</td><td>float</td><td>2.0</td><td>Pixel offset for the drop shadow behind FCT text</td></tr>
         </tbody>
     </table>
 
