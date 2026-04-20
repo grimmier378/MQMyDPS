@@ -604,13 +604,21 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 			ImPlot::EndPlot();
 		}
 
-		if (ImPlot::BeginPlot("Damage Breakdown by Battle", ImVec2(-1, 300)))
+		if (ImPlot::BeginPlot("Damage Breakdown by Battle", ImVec2(-1, 350)))
 		{
 			ImPlot::SetupAxes("Battle #", "Damage");
 			ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
 			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
+
+			ImPlot::SetupAxis(ImAxis_Y2, "Crits", ImPlotAxisFlags_AuxDefault);
+			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y2, 0, HUGE_VAL);
+
+			ImPlot::SetupAxis(ImAxis_Y3, "Heals", ImPlotAxisFlags_AuxDefault);
+			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y3, 0, HUGE_VAL);
+
 			ImPlot::SetupLegend(ImPlotLocation_NorthEast);
 
+			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y1);
 			ImPlot::SetNextLineStyle(C("hit"), 2.0f);
 			ImPlot::PlotLine("Melee", nums.data(), melee.data(), count);
 			ImPlot::SetNextLineStyle(C("non-melee"), 1.5f);
@@ -619,8 +627,12 @@ void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
 			ImPlot::PlotLine("DoT", nums.data(), dots.data(), count);
 			ImPlot::SetNextLineStyle(C("pet"), 1.5f);
 			ImPlot::PlotLine("Pet", nums.data(), pets.data(), count);
+
+			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y2);
 			ImPlot::SetNextLineStyle(C("crit"), 1.5f);
 			ImPlot::PlotLine("Crit", nums.data(), crits.data(), count);
+
+			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y3);
 			ImPlot::SetNextLineStyle(C("heal"), 1.5f);
 			ImPlot::PlotLine("Heals", nums.data(), heals.data(), count);
 			ImPlot::SetNextLineStyle(C("critHeals"), 1.5f);
