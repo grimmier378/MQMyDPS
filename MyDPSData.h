@@ -110,6 +110,46 @@ struct BattleData
 	std::unordered_map<std::string, HealTargetData> healTargets;
 };
 
+struct FCTIconOverride
+{
+	int  iconID  = -1;
+	bool useItem = false;
+};
+
+struct FCTTypeInfo
+{
+	const char* key;
+	const char* displayName;
+	int         defaultIcon;
+	bool        isMeleeVerb;
+};
+
+inline const std::vector<FCTTypeInfo>& GetFCTTypeInfoList()
+{
+	static const std::vector<FCTTypeInfo> list = {
+		{ "hit",              "Hit",             49,  true  },
+		{ "crush",            "Crush",           49,  true  },
+		{ "kick",             "Kick",            201, true  },
+		{ "bash",             "Bash",            155, true  },
+		{ "slash",            "Slash",           49,  true  },
+		{ "pierce",           "Pierce",          49,  true  },
+		{ "backstab",         "Backstab",        49,  true  },
+		{ "bite",             "Bite",            49,  true  },
+		{ "non-melee",        "Non-Melee",       -1,  false },
+		{ "crit",             "Crit",            50,  false },
+		{ "dot",              "DoT",             -1,  false },
+		{ "dShield",          "Damage Shield",   -1,  false },
+		{ "pet",              "Pet",             3,   false },
+		{ "heal",             "Heal",            0,   false },
+		{ "critHeals",        "Crit Heal",       0,   false },
+		{ "hit-by",           "Hit By",          -1,  false },
+		{ "hit-by-non-melee", "Hit By Non-Melee",-1,  false },
+		{ "miss",             "Miss",            -1,  false },
+		{ "missed-me",        "Missed Me",       -1,  false },
+	};
+	return list;
+}
+
 struct MyDPSSettings
 {
 	bool  sortNewest       = true;
@@ -140,6 +180,7 @@ struct MyDPSSettings
 	bool  showFCT_CritHeals = true;
 	bool  showFCT_HitBy     = true;
 	bool  showFCT_Icons     = true;
+	bool  fctDistinctMelee  = true;
 	float fctIconScale      = 1.0f;
 	float fctFloatDistance   = 150.0f;
 	float fctArcScale       = 1.0f;
@@ -149,6 +190,7 @@ struct MyDPSSettings
 	float fctShadowOffset   = 2.0f;
 
 	std::unordered_map<std::string, ImVec4> damageColors;
+	std::unordered_map<std::string, FCTIconOverride> fctIconOverrides;
 
 	void InitDefaultColors()
 	{

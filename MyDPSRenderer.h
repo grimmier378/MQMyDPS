@@ -1,6 +1,9 @@
 #pragma once
 
+#include <mq/Plugin.h>
+
 #include <chrono>
+#include <string>
 #include <vector>
 
 class MyDPSEngine;
@@ -8,10 +11,13 @@ class MyDPSEngine;
 class MyDPSRenderer
 {
 public:
+	~MyDPSRenderer();
+
 	void RenderCombatSpam(MyDPSEngine& engine);
 	void RenderMainWindow(MyDPSEngine& engine);
 	void RenderConfigWindow(MyDPSEngine& engine);
 	void RenderFloatingText(MyDPSEngine& engine);
+	void RenderIconPicker(MyDPSEngine& engine);
 
 private:
 	void RenderCurrentBattle(MyDPSEngine& engine);
@@ -22,6 +28,7 @@ private:
 	void RenderPieChart(MyDPSEngine& engine);
 	void RenderHealing(MyDPSEngine& engine);
 	void RenderConfig(MyDPSEngine& engine);
+	void EnsurePickerAnimations();
 
 	bool m_showPieChart  = false;
 	bool m_showLineGraph = true;
@@ -36,4 +43,14 @@ private:
 	int  m_gCount    = 0;
 
 	std::chrono::steady_clock::time_point m_lastFCTUpdate;
+
+	bool        m_iconPickerOpen      = false;
+	std::string m_iconPickerKey;
+	std::string m_iconPickerLabel;
+	int         m_iconPickerPage      = 1;
+	bool        m_iconPickerShowItems = false;
+	float       m_iconPickerScale     = 1.0f;
+
+	CTextureAnimation* m_pPickerSpellAnim = nullptr;
+	CTextureAnimation* m_pPickerItemAnim  = nullptr;
 };

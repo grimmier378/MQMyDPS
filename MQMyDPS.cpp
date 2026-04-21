@@ -84,6 +84,7 @@ PLUGIN_API void OnUpdateImGui()
 	s_renderer.RenderConfigWindow(*g_dpsEngine);
 	s_renderer.RenderCombatSpam(*g_dpsEngine);
 	s_renderer.RenderFloatingText(*g_dpsEngine);
+	s_renderer.RenderIconPicker(*g_dpsEngine);
 }
 
 PLUGIN_API void OnBeginZone()
@@ -265,6 +266,7 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.showFCT_CritHeals = GetPrivateProfileBool("FCT", "CritHeals", true, path);
 	settings.showFCT_HitBy     = GetPrivateProfileBool("FCT", "HitBy", true, path);
 	settings.showFCT_Icons     = GetPrivateProfileBool("FCT", "Icons", true, path);
+	settings.fctDistinctMelee  = GetPrivateProfileBool("FCT", "DistinctMelee", true, path);
 	GetPrivateProfileString("FCT", "IconScale", "1.0", buf, sizeof(buf), path);
 	settings.fctIconScale = static_cast<float>(atof(buf));
 	GetPrivateProfileString("FCT", "FloatDistance", "150.0", buf, sizeof(buf), path);
@@ -279,6 +281,15 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.fctFontScale = static_cast<float>(atof(buf));
 	GetPrivateProfileString("FCT", "ShadowOffset", "2.0", buf, sizeof(buf), path);
 	settings.fctShadowOffset = static_cast<float>(atof(buf));
+
+	settings.fctIconOverrides.clear();
+	for (const auto& info : GetFCTTypeInfoList())
+	{
+		GetPrivateProfileString("FCTIcons", info.key, "-1", buf, sizeof(buf), path);
+		int id = atoi(buf);
+		if (id >= 0)
+			settings.fctIconOverrides[info.key] = { id, id >= 500 };
+	}
 
 	if (settings.autoStart)
 		tracking = true;
@@ -327,6 +338,7 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileBool("FCT", "CritHeals", settings.showFCT_CritHeals, path);
 	WritePrivateProfileBool("FCT", "HitBy", settings.showFCT_HitBy, path);
 	WritePrivateProfileBool("FCT", "Icons", settings.showFCT_Icons, path);
+	WritePrivateProfileBool("FCT", "DistinctMelee", settings.fctDistinctMelee, path);
 	WritePrivateProfileString("FCT", "IconScale", floatStr(settings.fctIconScale), path);
 	WritePrivateProfileString("FCT", "FloatDistance", floatStr(settings.fctFloatDistance), path);
 	WritePrivateProfileString("FCT", "ArcScale", floatStr(settings.fctArcScale), path);
@@ -334,6 +346,9 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileString("FCT", "BaseFontSize", floatStr(settings.fctBaseFontSize), path);
 	WritePrivateProfileString("FCT", "FontScale", floatStr(settings.fctFontScale), path);
 	WritePrivateProfileString("FCT", "ShadowOffset", floatStr(settings.fctShadowOffset), path);
+
+	for (const auto& [key, override] : settings.fctIconOverrides)
+		WritePrivateProfileString("FCTIcons", key.c_str(), std::to_string(override.iconID).c_str(), path);
 }
 
 void MyDPSEngine::UnloadCharacterSettings()
@@ -829,6 +844,20 @@ void MyDPSEngine::TrackDoTCasting()
 
 int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 {
+	std::string overrideKey;
+	if (record.type == DamageType::Melee && settings.fctDistinctMelee)
+		overrideKey = record.attackVerb;
+	else if (record.type == DamageType::Melee)
+		overrideKey = "hit";
+	else if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+		overrideKey = "pet";
+	else
+		overrideKey = DamageTypeToColorKey(record.type);
+
+	auto overIt = settings.fctIconOverrides.find(overrideKey);
+	if (overIt != settings.fctIconOverrides.end() && overIt->second.iconID >= 0)
+		return overIt->second.iconID;
+
 	switch (record.type)
 	{
 	case DamageType::DirectHeal:

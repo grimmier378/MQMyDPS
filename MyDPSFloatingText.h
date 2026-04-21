@@ -50,6 +50,7 @@ private:
 	std::unordered_map<int, int> m_spawnAngleSlot;
 	std::mt19937 m_rng{ std::random_device{}() };
 	CTextureAnimation* m_pSpellIconAnim = nullptr;
+	CTextureAnimation* m_pItemIconAnim  = nullptr;
 
 	void EnsureIconAnimation()
 	{
@@ -59,6 +60,14 @@ private:
 			{
 				m_pSpellIconAnim = new CTextureAnimation();
 				*m_pSpellIconAnim = *temp;
+			}
+		}
+		if (!m_pItemIconAnim && pSidlMgr)
+		{
+			if (CTextureAnimation* temp = pSidlMgr->FindAnimation("A_DragItem"))
+			{
+				m_pItemIconAnim = new CTextureAnimation();
+				*m_pItemIconAnim = *temp;
 			}
 		}
 	}
@@ -82,6 +91,8 @@ inline FCTManager::~FCTManager()
 {
 	delete m_pSpellIconAnim;
 	m_pSpellIconAnim = nullptr;
+	delete m_pItemIconAnim;
+	m_pItemIconAnim = nullptr;
 }
 
 inline bool FCTManager::IsTypeEnabled(DamageType type, const MyDPSSettings& settings) const
@@ -138,6 +149,12 @@ inline void FCTManager::AddEntry(const DamageRecord& record, const MyDPSSettings
 	if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
 		colorKey = "pet";
 	auto it = settings.damageColors.find(colorKey);
+	if (record.type == DamageType::Melee && settings.fctDistinctMelee && !record.attackVerb.empty())
+	{
+		auto verbIt = settings.damageColors.find(record.attackVerb);
+		if (verbIt != settings.damageColors.end())
+			it = verbIt;
+	}
 	entry.color = (it != settings.damageColors.end()) ? it->second : ImVec4(1, 1, 1, 1);
 
 	static constexpr float angleSlots[NUM_ANGLE_SLOTS] = {
@@ -291,7 +308,9 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 		float fontSize = settings.fctBaseFontSize * settings.fctFontScale * scale;
 		ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0, entry.displayText.c_str());
 
-		bool drawIcon = settings.showFCT_Icons && entry.iconCellID >= 0 && m_pSpellIconAnim;
+		bool isItemIcon = entry.iconCellID >= 500;
+		CTextureAnimation* iconAnim = isItemIcon ? m_pItemIconAnim : m_pSpellIconAnim;
+		bool drawIcon = settings.showFCT_Icons && entry.iconCellID >= 0 && iconAnim;
 		float iconSize = fontSize * settings.fctIconScale;
 		float iconPad  = drawIcon ? 2.0f * scale : 0.0f;
 		float totalWidth = textSize.x + (drawIcon ? (iconSize + iconPad) : 0.0f);
@@ -312,13 +331,14 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 
 		if (drawIcon)
 		{
-			m_pSpellIconAnim->SetCurCell(entry.iconCellID);
+			int cellID = isItemIcon ? (entry.iconCellID - 500) : entry.iconCellID;
+			iconAnim->SetCurCell(cellID);
 			uint8_t alpha255 = static_cast<uint8_t>(alpha * 255.0f);
 			MQColor tint(255, 255, 255, alpha255);
 			int iSize = static_cast<int>(iconSize);
 			mq::imgui::DrawTextureAnimation(
 				drawList,
-				m_pSpellIconAnim,
+				iconAnim,
 				CXPoint(static_cast<int>(iconX), static_cast<int>(y)),
 				CXSize(iSize, iSize),
 				tint);

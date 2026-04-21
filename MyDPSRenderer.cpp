@@ -2,11 +2,21 @@
 #include "MQMyDPS.h"
 #include "Theme.h"
 
+#include <mq/Plugin.h>
+#include <mq/imgui/Widgets.h>
 #include <imgui/fonts/IconsMaterialDesign.h>
 #include <imgui/implot/implot.h>
 #include <fmt/format.h>
 
 #include <algorithm>
+
+MyDPSRenderer::~MyDPSRenderer()
+{
+	delete m_pPickerSpellAnim;
+	m_pPickerSpellAnim = nullptr;
+	delete m_pPickerItemAnim;
+	m_pPickerItemAnim = nullptr;
+}
 
 static std::string FormatNumber(int64_t value)
 {
@@ -855,14 +865,22 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 
 				ImGui::ColorEdit4("Background", &s.bgColor.x, ImGuiColorEditFlags_NoInputs);
 
+				static const char* uiOnlyKeys[] = {
+					"dmg-target", "heal-target", "dps", "duration", "avg", "total"
+				};
+
 				int col = std::max(1, sizeX / 150);
-				if (ImGui::BeginTable("Damage Colors", col))
+				if (ImGui::BeginTable("UI Colors", col))
 				{
 					ImGui::TableNextRow();
-					for (auto& [name, color] : s.damageColors)
+					for (const char* key : uiOnlyKeys)
 					{
-						ImGui::TableNextColumn();
-						ImGui::ColorEdit4(name.c_str(), &color.x, ImGuiColorEditFlags_NoInputs);
+						auto it = s.damageColors.find(key);
+						if (it != s.damageColors.end())
+						{
+							ImGui::TableNextColumn();
+							ImGui::ColorEdit4(it->first.c_str(), &it->second.x, ImGuiColorEditFlags_NoInputs);
+						}
 					}
 					ImGui::EndTable();
 				}
@@ -889,9 +907,10 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					{ "Crit Heals", &s.showFCT_CritHeals },
 					{ "Hit By",     &s.showFCT_HitBy },
 					{ "Icons",      &s.showFCT_Icons },
+					{ "Distinct Melee", &s.fctDistinctMelee },
 				};
 
-				int fctCol = std::max(1, sizeX / 120);
+				int fctCol = std::max(1, sizeX / 130);
 				if (ImGui::BeginTable("FCT Toggles", fctCol))
 				{
 					ImGui::TableNextRow();
@@ -902,6 +921,79 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					}
 					ImGui::EndTable();
 				}
+
+				ImGui::Separator();
+
+				EnsurePickerAnimations();
+
+				if (ImGui::BeginTable("FCT Types", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+				{
+					ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
+					ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+					ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 36.0f);
+					ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 24.0f);
+					ImGui::TableHeadersRow();
+
+					for (const auto& info : GetFCTTypeInfoList())
+					{
+						if (info.isMeleeVerb && !s.fctDistinctMelee)
+							continue;
+
+						ImGui::PushID(info.key);
+						ImGui::TableNextRow();
+
+						ImGui::TableNextColumn();
+						ImGui::TextUnformatted(info.displayName);
+
+						ImGui::TableNextColumn();
+						auto colorIt = s.damageColors.find(info.key);
+						if (colorIt != s.damageColors.end())
+							ImGui::ColorEdit4("##color", &colorIt->second.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+
+						ImGui::TableNextColumn();
+						{
+							auto overIt = s.fctIconOverrides.find(info.key);
+							int iconID = (overIt != s.fctIconOverrides.end() && overIt->second.iconID >= 0)
+								? overIt->second.iconID : info.defaultIcon;
+
+							ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+							bool drewIcon = false;
+							if (iconID >= 0)
+							{
+								CTextureAnimation* anim = (iconID >= 500) ? m_pPickerItemAnim : m_pPickerSpellAnim;
+								if (anim)
+								{
+									int cell = (iconID >= 500) ? (iconID - 500) : iconID;
+									anim->SetCurCell(cell);
+									mq::imgui::DrawTextureAnimation(anim, CXSize(24, 24));
+									drewIcon = true;
+								}
+							}
+							if (!drewIcon)
+								ImGui::Dummy(ImVec2(24, 24));
+
+							ImGui::SetCursorScreenPos(cursorPos);
+							if (ImGui::InvisibleButton("##pick", ImVec2(24, 24)))
+							{
+								m_iconPickerOpen = true;
+								m_iconPickerKey = info.key;
+								m_iconPickerLabel = info.displayName;
+							}
+							if (ImGui::IsItemHovered())
+								ImGui::SetTooltip("Click to change icon");
+						}
+
+						ImGui::TableNextColumn();
+						if (ImGui::SmallButton("X"))
+							s.fctIconOverrides.erase(info.key);
+
+						ImGui::PopID();
+					}
+
+					ImGui::EndTable();
+				}
+
+				ImGui::Separator();
 
 				ImGui::SetNextItemWidth(100);
 				ImGui::SliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
@@ -950,4 +1042,122 @@ void MyDPSRenderer::RenderFloatingText(MyDPSEngine& engine)
 
 	engine.fctManager.Update(dt);
 	engine.fctManager.Render(engine.settings);
+}
+
+void MyDPSRenderer::EnsurePickerAnimations()
+{
+	if (!m_pPickerSpellAnim && pSidlMgr)
+	{
+		if (CTextureAnimation* temp = pSidlMgr->FindAnimation("A_SpellGems"))
+		{
+			m_pPickerSpellAnim = new CTextureAnimation();
+			*m_pPickerSpellAnim = *temp;
+		}
+	}
+	if (!m_pPickerItemAnim && pSidlMgr)
+	{
+		if (CTextureAnimation* temp = pSidlMgr->FindAnimation("A_DragItem"))
+		{
+			m_pPickerItemAnim = new CTextureAnimation();
+			*m_pPickerItemAnim = *temp;
+		}
+	}
+}
+
+void MyDPSRenderer::RenderIconPicker(MyDPSEngine& engine)
+{
+	if (!m_iconPickerOpen)
+		return;
+
+	EnsurePickerAnimations();
+
+	auto winName = fmt::format("Icon Picker - {}##FCTIconPicker", m_iconPickerLabel);
+	ImGui::SetNextWindowSize(ImVec2(450, 400), ImGuiCond_FirstUseEver);
+
+	if (!ImGui::Begin(winName.c_str(), &m_iconPickerOpen, ImGuiWindowFlags_None))
+	{
+		ImGui::End();
+		return;
+	}
+
+	bool isItemTab = m_iconPickerShowItems;
+	if (ImGui::BeginTabBar("##IconPickerTabs"))
+	{
+		if (ImGui::BeginTabItem("Spell Icons"))
+		{
+			m_iconPickerShowItems = false;
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Item Icons"))
+		{
+			m_iconPickerShowItems = true;
+			ImGui::EndTabItem();
+		}
+		ImGui::EndTabBar();
+	}
+
+	ImGui::SetNextItemWidth(150);
+	ImGui::SliderFloat("Icon Size", &m_iconPickerScale, 0.5f, 3.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp);
+
+	int maxIcon = m_iconPickerShowItems ? 12599 : 499;
+	int iconsPerPage = 500;
+	int maxPage = (maxIcon / iconsPerPage) + 1;
+	if (m_iconPickerPage < 1) m_iconPickerPage = 1;
+	if (m_iconPickerPage > maxPage) m_iconPickerPage = maxPage;
+
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(150);
+	ImGui::SliderInt("Page", &m_iconPickerPage, 1, maxPage);
+
+	float iconSize = 40.0f * m_iconPickerScale;
+	float spacing = ImGui::GetStyle().ItemSpacing.x;
+	float windowWidth = ImGui::GetContentRegionAvail().x;
+	int cols = std::max(1, static_cast<int>(windowWidth / (iconSize + spacing)));
+
+	int startId = (m_iconPickerPage - 1) * iconsPerPage;
+	int endId = std::min(maxIcon, startId + iconsPerPage - 1);
+
+	CTextureAnimation* anim = m_iconPickerShowItems ? m_pPickerItemAnim : m_pPickerSpellAnim;
+
+	bool selected = false;
+
+	if (anim && ImGui::BeginChild("##IconGrid", ImVec2(0, 0), ImGuiChildFlags_None))
+	{
+		if (ImGui::BeginTable("##Icons", cols))
+		{
+			for (int id = startId; id <= endId && !selected; id++)
+			{
+				ImGui::TableNextColumn();
+				ImGui::PushID(id);
+
+				ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+				anim->SetCurCell(id);
+
+				int iSize = static_cast<int>(iconSize);
+				mq::imgui::DrawTextureAnimation(anim, CXSize(iSize, iSize));
+
+				ImGui::SetCursorScreenPos(cursorPos);
+				if (ImGui::InvisibleButton("##icon", ImVec2(iconSize, iconSize)))
+				{
+					int storedID = m_iconPickerShowItems ? (id + 500) : id;
+					engine.settings.fctIconOverrides[m_iconPickerKey] = { storedID, m_iconPickerShowItems };
+					m_iconPickerOpen = false;
+					selected = true;
+				}
+
+				if (!selected && ImGui::IsItemHovered())
+				{
+					int displayID = m_iconPickerShowItems ? (id + 500) : id;
+					ImGui::SetTooltip("%s Icon: %d",
+						m_iconPickerShowItems ? "Item" : "Spell", displayID);
+				}
+
+				ImGui::PopID();
+			}
+			ImGui::EndTable();
+		}
+		ImGui::EndChild();
+	}
+
+	ImGui::End();
 }
