@@ -295,7 +295,7 @@ ImGui::PopFont();</code></pre>
     <p>Two sections separated by a horizontal line:</p>
 
     <ul>
-        <li><strong>Current Battle Targets:</strong> A 5-column table (Name, DPS, Hits, Avg,
+        <li><strong>Current Battle Targets:</strong> A 4-column table (Name, DPS, Hits,
         Total) reading live from <code>engine.currentTargets</code>. Updated every frame.
         Shown only if the current battle has any targets.</li>
         <li><strong>All Session Targets:</strong> A 4-column table (Name, Hits, Avg, Total)
@@ -624,9 +624,13 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
     <ul>
         <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling
         <code>settings.showFCT</code>.</li>
-        <li><strong>Distinct Melee</strong> &mdash; Checkbox toggle. When enabled,
-        individual melee verbs (crush, slash, hit, etc.) are treated as distinct
-        configurable types in the table below.</li>
+        <li><strong>Type filter toggles</strong> &mdash; A checkbox grid (columns computed
+        dynamically at <code>sizeX / 130</code>) with 10 individual type filter checkboxes:
+        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, Icons, and Distinct Melee.
+        Each toggle controls visibility of that FCT type (e.g. <code>showFCT_Melee</code>,
+        <code>showFCT_DD</code>, etc.). The "Icons" toggle controls whether icons are
+        rendered alongside FCT text. "Distinct Melee" controls whether individual melee
+        verbs appear as separate rows in the type table below.</li>
     </ul>
 
     <p>Below the master toggle, a unified type table is rendered with 4 columns:</p>
@@ -656,10 +660,23 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
         icon atlas and the item icon atlas as the icon source.</li>
         <li><strong>Scale slider</strong> &mdash; Controls the display size of icons in the
         picker grid for easier browsing.</li>
-        <li><strong>Page navigation</strong> &mdash; Previous/Next buttons to page through
-        the available icons in the selected atlas. Clicking an icon in the grid selects it
-        for that FCT type and closes the picker.</li>
+        <li><strong>Page navigation</strong> &mdash; A <code>SliderInt</code> labeled "Page"
+        to page through the available icons in the selected atlas. Clicking an icon in the
+        grid selects it for that FCT type and closes the picker.</li>
     </ul>
+
+    <p>Icon rendering in both the type table and the picker requires
+    <code>CTextureAnimation</code> objects loaded from the SIDL manager.
+    <code>EnsurePickerAnimations()</code> lazy-loads these on first use, finding
+    <code>A_SpellGems</code> (spell icon atlas) and <code>A_DragItem</code> (item icon
+    atlas) via <code>pSidlMgr-&gt;FindAnimation()</code> and cloning them into renderer-owned
+    copies.</p>
+
+    <p>Item icons are stored with a <strong>+500 offset</strong> to distinguish them from
+    spell icons: IDs 0&ndash;499 represent spell icons, while IDs 500+ represent item icons
+    (with the actual atlas cell being <code>iconID - 500</code>). This convention is used
+    consistently across the icon picker, the FCT type table rendering, and the override
+    storage in <code>fctIconOverrides</code>.</p>
 
     <p>Below the type table, 7 sliders control the visual properties:</p>
 
@@ -668,11 +685,11 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
         <tbody>
             <tr><td>Base Font Size</td><td><code>fctBaseFontSize</code></td><td>12.0 &ndash; 48.0</td><td>24.0</td><td>%.0f</td></tr>
             <tr><td>Font Scale</td><td><code>fctFontScale</code></td><td>0.5 &ndash; 3.0</td><td>1.5</td><td>%.2f</td></tr>
+            <tr><td>Icon Scale</td><td><code>fctIconScale</code></td><td>0.1 &ndash; 1.0</td><td>1.0</td><td>%.2f</td></tr>
+            <tr><td>Float Distance</td><td><code>fctFloatDistance</code></td><td>30.0 &ndash; 300.0</td><td>150.0</td><td>%.0f</td></tr>
+            <tr><td>Arc Scale</td><td><code>fctArcScale</code></td><td>0.0 &ndash; 3.0</td><td>1.0</td><td>%.2f</td></tr>
             <tr><td>Shadow Offset</td><td><code>fctShadowOffset</code></td><td>0.0 &ndash; 5.0</td><td>2.0</td><td>%.1f</td></tr>
             <tr><td>Lifetime (s)</td><td><code>fctLifetime</code></td><td>1.0 &ndash; 5.0</td><td>2.5</td><td>%.1f</td></tr>
-            <tr><td>Float Distance</td><td><code>fctFloatDistance</code></td><td>50.0 &ndash; 300.0</td><td>150.0</td><td>%.0f</td></tr>
-            <tr><td>Arc Scale</td><td><code>fctArcScale</code></td><td>10.0 &ndash; 120.0</td><td>60.0</td><td>%.0f</td></tr>
-            <tr><td>Icon Scale</td><td><code>fctIconScale</code></td><td>0.5 &ndash; 3.0</td><td>1.0</td><td>%.2f</td></tr>
         </tbody>
     </table>
 

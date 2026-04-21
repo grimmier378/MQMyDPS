@@ -291,6 +291,15 @@ void MyDPSEngine::LoadCharacterSettings()
 			settings.fctIconOverrides[info.key] = { id, id >= 500 };
 	}
 
+	for (auto& [key, color] : settings.damageColors)
+	{
+		MQColor defaultColor(color);
+		MQColor loaded = GetPrivateProfileColor("Colors", key.c_str(), defaultColor, path);
+		color = loaded.ToImColor();
+	}
+	MQColor defaultBg(settings.bgColor);
+	settings.bgColor = GetPrivateProfileColor("Colors", "background", defaultBg, path).ToImColor();
+
 	if (settings.autoStart)
 		tracking = true;
 
@@ -349,6 +358,10 @@ void MyDPSEngine::SaveCharacterSettings()
 
 	for (const auto& [key, override] : settings.fctIconOverrides)
 		WritePrivateProfileString("FCTIcons", key.c_str(), std::to_string(override.iconID).c_str(), path);
+
+	for (const auto& [key, color] : settings.damageColors)
+		WritePrivateProfileColor("Colors", key.c_str(), MQColor(color), path);
+	WritePrivateProfileColor("Colors", "background", MQColor(settings.bgColor), path);
 }
 
 void MyDPSEngine::UnloadCharacterSettings()

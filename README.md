@@ -1,42 +1,69 @@
 # MQMyDPS
 
-One Paragraph project description goes here
+A native C++ MacroQuest plugin for EverQuest that provides real-time DPS tracking, battle history, healing statistics, floating combat text (FCT), and graphing via ImPlot.
+
+## Features
+
+- Real-time DPS tracking with per-target breakdown
+- Battle history with expandable per-target details
+- Healing tracking (direct + crit heals) with pie charts
+- Floating Combat Text (FCT) anchored to 3D spawn positions
+- Customizable per-type colors and icons for FCT
+- ImPlot line/bar/pie graphs
+- Combat Output overlay (scrolling damage feed)
+- MQMyChat integration for battle reports
+- TLO API for macro/Lua access (`${MyDPS}`)
+- Per-character INI settings persistence
 
 ## Getting Started
 
-Quick start instructions to get users up and going
-
-```txt
+```
 /plugin MQMyDPS
 ```
 
-### Commands
+## Commands
 
-Describe the commands available and how to use them.
+| Command | Description |
+|---------|-------------|
+| `/mydps` | Toggle main window |
+| `/mydps start` | Begin tracking |
+| `/mydps stop` | Stop tracking |
+| `/mydps reset` | Clear all data |
+| `/mydps report` | Print session summary |
+| `/mydps show` / `hide` | Show or hide main window |
+| `/mydps spam` | Toggle combat output overlay |
+| `/mydps lock` | Toggle click-through on overlay |
+| `/mydps fct` | Toggle floating combat text |
+| `/mydps config` | Toggle config window |
 
-```txt
-Give examples
+## Configuration
+
+Settings are stored per-character at:
+
+```
+{MQConfigDir}\MQMyDPS\{Server}\{CharName}.ini
 ```
 
-### Configuration File
+INI sections: `Options`, `Windows`, `FCT`, `FCTIcons`, `Colors`.
 
-Describe the configuration file and what the settings do
+## TLO API
 
-```yaml
-- Example goes here
+Access plugin data from macros or Lua via the `${MyDPS}` TLO:
+
+```
+${MyDPS.DPS}
+${MyDPS.InCombat}
+${MyDPS.Target[name].TotalDamage}
 ```
 
-## Other Notes
+## Documentation
 
-Add additional notes
+Full technical documentation is available at [Documentation/index.html](Documentation/index.html).
 
-## Authors
+## Dependencies
 
-* **Your name** - *Initial work*
+MQ2Main, ImGui, ImPlot, fmt, eqlib -- all included in the MacroQuest build environment.
 
-See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
+## Author
 
-## Acknowledgments
-
-* Inspiration from...
-* I'd like to thank the Thieves' Guild for helping me with all the code I stole...
+Grimmier

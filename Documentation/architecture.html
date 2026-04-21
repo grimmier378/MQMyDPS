@@ -413,7 +413,7 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         <li><code>fctShadowOffset</code> (default 2.0): pixel offset for the drop shadow, scaled proportionally to font size.</li>
         <li><code>fctLifetime</code> (default 2.5s): how long each FCT entry floats before fading out.</li>
         <li><code>fctFloatDistance</code> (default 150.0): how far (in pixels) each FCT entry floats upward during its lifetime.</li>
-        <li><code>fctArcScale</code> (default 60.0): controls the width of the arc-based directional spread for rapid hits on the same target.</li>
+        <li><code>fctArcScale</code> (default 1.0): scale multiplier for the arc-based directional spread for rapid hits on the same target.</li>
         <li><code>fctShowIcons</code> (default true): when enabled, a damage-type icon is rendered alongside each FCT number.</li>
         <li><code>fctIconScale</code> (default 1.0): scale multiplier for FCT icons.</li>
     </ul>
@@ -497,7 +497,7 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
 
     <h2>Save-on-Close Window Behavior</h2>
 
-    <p>All three closeable windows (Main, Config, Combat Spam) implement a save-on-close
+    <p>All three closeable windows (Main, Config, Combat Output) implement a save-on-close
     pattern. Before drawing, each caches its open state. After <code>ImGui::End()</code>,
     if the window was open before but is now closed (user clicked the X button), it calls
     <code>engine.SaveCharacterSettings()</code>. This ensures the window visibility state

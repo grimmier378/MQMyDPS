@@ -632,30 +632,31 @@ engine.fctManager.Render(engine.settings);</code></pre>
 
     <p>The static function <code>GetFCTTypeInfoList()</code> returns the authoritative list of
     all 19 configurable FCT types. Each entry defines a string key (used for color lookup,
-    icon overrides, and INI persistence), a display label, and a default icon cell ID.</p>
+    icon overrides, and INI persistence), a display label, a default icon cell ID, and
+    whether the type is a melee verb.</p>
 
     <table>
-        <thead><tr><th>#</th><th>Type Key</th><th>Display Label</th><th>Default Icon</th></tr></thead>
+        <thead><tr><th>#</th><th>Type Key</th><th>Display Label</th><th>Default Icon</th><th>isMeleeVerb</th></tr></thead>
         <tbody>
-            <tr><td>1</td><td><code>hit</code></td><td>Hit</td><td>49</td></tr>
-            <tr><td>2</td><td><code>crush</code></td><td>Crush</td><td>49</td></tr>
-            <tr><td>3</td><td><code>slash</code></td><td>Slash</td><td>49</td></tr>
-            <tr><td>4</td><td><code>pierce</code></td><td>Pierce</td><td>49</td></tr>
-            <tr><td>5</td><td><code>backstab</code></td><td>Backstab</td><td>49</td></tr>
-            <tr><td>6</td><td><code>bash</code></td><td>Bash</td><td>155</td></tr>
-            <tr><td>7</td><td><code>kick</code></td><td>Kick</td><td>201</td></tr>
-            <tr><td>8</td><td><code>bite</code></td><td>Bite</td><td>49</td></tr>
-            <tr><td>9</td><td><code>non-melee</code></td><td>Non-Melee</td><td>-1</td></tr>
-            <tr><td>10</td><td><code>dot</code></td><td>DoT</td><td>-1</td></tr>
-            <tr><td>11</td><td><code>pet</code></td><td>Pet</td><td>3</td></tr>
-            <tr><td>12</td><td><code>pet-spell</code></td><td>Pet Spell</td><td>55</td></tr>
-            <tr><td>13</td><td><code>crit</code></td><td>Crit</td><td>50</td></tr>
-            <tr><td>14</td><td><code>heal</code></td><td>Heal</td><td>0</td></tr>
-            <tr><td>15</td><td><code>critHeals</code></td><td>Crit Heal</td><td>0</td></tr>
-            <tr><td>16</td><td><code>hit-by</code></td><td>Hit By</td><td>-1</td></tr>
-            <tr><td>17</td><td><code>hit-by-non-melee</code></td><td>Hit By Non-Melee</td><td>-1</td></tr>
-            <tr><td>18</td><td><code>ds</code></td><td>Damage Shield</td><td>-1</td></tr>
-            <tr><td>19</td><td><code>environmental</code></td><td>Environmental</td><td>-1</td></tr>
+            <tr><td>1</td><td><code>hit</code></td><td>Hit</td><td>49</td><td>true</td></tr>
+            <tr><td>2</td><td><code>crush</code></td><td>Crush</td><td>49</td><td>true</td></tr>
+            <tr><td>3</td><td><code>kick</code></td><td>Kick</td><td>201</td><td>true</td></tr>
+            <tr><td>4</td><td><code>bash</code></td><td>Bash</td><td>155</td><td>true</td></tr>
+            <tr><td>5</td><td><code>slash</code></td><td>Slash</td><td>49</td><td>true</td></tr>
+            <tr><td>6</td><td><code>pierce</code></td><td>Pierce</td><td>49</td><td>true</td></tr>
+            <tr><td>7</td><td><code>backstab</code></td><td>Backstab</td><td>49</td><td>true</td></tr>
+            <tr><td>8</td><td><code>bite</code></td><td>Bite</td><td>49</td><td>true</td></tr>
+            <tr><td>9</td><td><code>non-melee</code></td><td>Non-Melee</td><td>-1</td><td>false</td></tr>
+            <tr><td>10</td><td><code>crit</code></td><td>Crit</td><td>50</td><td>false</td></tr>
+            <tr><td>11</td><td><code>dot</code></td><td>DoT</td><td>-1</td><td>false</td></tr>
+            <tr><td>12</td><td><code>dShield</code></td><td>Damage Shield</td><td>-1</td><td>false</td></tr>
+            <tr><td>13</td><td><code>pet</code></td><td>Pet</td><td>3</td><td>false</td></tr>
+            <tr><td>14</td><td><code>heal</code></td><td>Heal</td><td>0</td><td>false</td></tr>
+            <tr><td>15</td><td><code>critHeals</code></td><td>Crit Heal</td><td>0</td><td>false</td></tr>
+            <tr><td>16</td><td><code>hit-by</code></td><td>Hit By</td><td>-1</td><td>false</td></tr>
+            <tr><td>17</td><td><code>hit-by-non-melee</code></td><td>Hit By Non-Melee</td><td>-1</td><td>false</td></tr>
+            <tr><td>18</td><td><code>miss</code></td><td>Miss</td><td>-1</td><td>false</td></tr>
+            <tr><td>19</td><td><code>missed-me</code></td><td>Missed Me</td><td>-1</td><td>false</td></tr>
         </tbody>
     </table>
 

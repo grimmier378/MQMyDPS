@@ -291,7 +291,7 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
             <tr><td><code>[Options]</code></td><td>SpamFontScale</td><td>float</td><td>1.0</td><td>Combat spam overlay font multiplier</td></tr>
             <tr><td><code>[Windows]</code></td><td>ShowMain</td><td>bool</td><td>true</td><td>Main window visibility on load</td></tr>
             <tr><td><code>[Windows]</code></td><td>ShowConfig</td><td>bool</td><td>false</td><td>Config window visibility on load</td></tr>
-            <tr><td><code>[Windows]</code></td><td>ShowCombatSpam</td><td>bool</td><td>true</td><td>Spam overlay visibility on load. Controlled at runtime via /mydps spam or "Show Combat Spam" checkbox.</td></tr>
+            <tr><td><code>[Windows]</code></td><td>ShowCombatSpam</td><td>bool</td><td>true</td><td>Combat Output overlay visibility on load. Controlled at runtime via /mydps spam or "Show Combat Output" checkbox.</td></tr>
             <tr><td><code>[FCT]</code></td><td>Enabled</td><td>bool</td><td>false</td><td>Master toggle for floating combat text. Controlled at runtime via <code>/mydps fct</code>.</td></tr>
             <tr><td><code>[FCT]</code></td><td>Melee</td><td>bool</td><td>true</td><td>Show FCT for melee hits</td></tr>
             <tr><td><code>[FCT]</code></td><td>DD</td><td>bool</td><td>true</td><td>Show FCT for direct damage spells</td></tr>
@@ -306,9 +306,13 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
             <tr><td><code>[FCT]</code></td><td>FontScale</td><td>float</td><td>1.5</td><td>Font scale multiplier applied on top of BaseFontSize for FCT</td></tr>
             <tr><td><code>[FCT]</code></td><td>ShadowOffset</td><td>float</td><td>2.0</td><td>Pixel offset for the drop shadow behind FCT text</td></tr>
             <tr><td><code>[FCT]</code></td><td>FloatDistance</td><td>float</td><td>150.0</td><td>How far (in pixels) each FCT entry floats upward during its lifetime</td></tr>
-            <tr><td><code>[FCT]</code></td><td>ArcScale</td><td>float</td><td>60.0</td><td>Width of the arc-based directional spread for rapid hits on the same target</td></tr>
+            <tr><td><code>[FCT]</code></td><td>ArcScale</td><td>float</td><td>1.0</td><td>Scale multiplier for arc-based directional spread for rapid hits on the same target</td></tr>
             <tr><td><code>[FCT]</code></td><td>Icons</td><td>bool</td><td>true</td><td>Show damage-type icons alongside FCT numbers</td></tr>
             <tr><td><code>[FCT]</code></td><td>IconScale</td><td>float</td><td>1.0</td><td>Scale multiplier for FCT icons</td></tr>
+            <tr><td><code>[FCT]</code></td><td>DistinctMelee</td><td>bool</td><td>true</td><td>Use per-verb colors for melee attacks (hit, kick, bash, etc.) in FCT</td></tr>
+            <tr><td><code>[FCTIcons]</code></td><td><em>(type key)</em></td><td>int</td><td>-1</td><td>Per-type icon override. Key is the FCT type name (e.g. "hit", "crit", "dot"). Value is icon ID: 0-499 for spell icons, 500+ for item icons. Absent key = use default icon resolution.</td></tr>
+            <tr><td><code>[Colors]</code></td><td><em>(color key)</em></td><td>MQColor</td><td><em>(varies)</em></td><td>Per-key color override stored as ARGB uint32. All 22 damageColors keys are persisted (crush, kick, hit, slash, pierce, backstab, bite, bash, miss, missed-me, non-melee, hit-by, crit, hit-by-non-melee, dShield, critHeals, dot, heal, dmg-target, heal-target, dps, duration, avg, total, pet).</td></tr>
+            <tr><td><code>[Colors]</code></td><td>background</td><td>MQColor</td><td>0x80000000</td><td>Background color for the combat output overlay window.</td></tr>
         </tbody>
     </table>
 
@@ -320,11 +324,12 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
     </div>
 
     <div class="note">
-        <strong>Why are colors not in the INI?</strong> The current implementation initializes
-        colors to defaults in <code>InitDefaultColors()</code> and does not persist them to
-        the INI. Color changes made in the config window survive as long as the plugin is
-        loaded, but are lost on unload. If you want persistent custom colors, that would
-        require adding color serialization to <code>SaveCharacterSettings()</code>.
+        <strong>Color persistence:</strong> All 22 <code>damageColors</code> entries plus
+        <code>bgColor</code> are saved to the <code>[Colors]</code> INI section using
+        <code>WritePrivateProfileColor</code> (ARGB uint32 format). On load,
+        <code>InitDefaultColors()</code> runs first to populate defaults, then each key
+        is overwritten from the INI via <code>GetPrivateProfileColor</code>. Deleting the
+        <code>[Colors]</code> section restores all colors to defaults.
     </div>
 
     <h2>recentRecords Cleanup</h2>
