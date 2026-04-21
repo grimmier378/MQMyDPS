@@ -33,6 +33,7 @@ struct DamageRecord
 	int64_t     damage        = 0;
 	bool        isMiss        = false;
 	std::string spellName;
+	int         spellIconID   = -1;
 	std::chrono::steady_clock::time_point timestamp;
 	int         sequence      = 0;
 };
@@ -42,6 +43,7 @@ struct ActiveDoT
 	int         targetSpawnID = 0;
 	std::string targetName;
 	std::string spellName;
+	int         spellIconID   = -1;
 	std::chrono::steady_clock::time_point castTime;
 };
 
@@ -137,6 +139,10 @@ struct MyDPSSettings
 	bool  showFCT_Heals     = true;
 	bool  showFCT_CritHeals = true;
 	bool  showFCT_HitBy     = true;
+	bool  showFCT_Icons     = true;
+	float fctIconScale      = 1.0f;
+	float fctFloatDistance   = 150.0f;
+	float fctArcScale       = 1.0f;
 	float fctLifetime       = 2.5f;
 	float fctBaseFontSize   = 24.0f;
 	float fctFontScale      = 1.5f;

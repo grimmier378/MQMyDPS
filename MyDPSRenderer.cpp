@@ -24,7 +24,7 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 
 	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
 
-	auto windowName = fmt::format("Combat Spam##{}", engine.charName);
+	auto windowName = fmt::format("Combat Output##{}", engine.charName);
 
 	ImGui::SetNextWindowSize(ImVec2(350, 200), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowBgAlpha(engine.settings.bgColor.w);
@@ -813,10 +813,10 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					{ "Show Crit Heals",   &s.showCritHeals },
 					{ "Show Damage Shield",&s.showDS },
 					{ "Track Pet",         &s.addPet },
-					{ "Show Combat Spam",  &engine.showCombatSpam },
-					{ "Sort Newest First", &s.sortNewest },
-					{ "Auto Start",        &s.autoStart },
-					{ "Lock Spam Window",  &s.spamClickThrough },
+					{ "Show Combat Output", &engine.showCombatSpam },
+					{ "Sort Newest First",  &s.sortNewest },
+					{ "Auto Start",         &s.autoStart },
+					{ "Lock Combat Output", &s.spamClickThrough },
 				};
 
 				int col = std::max(1, sizeX / 165);
@@ -841,7 +841,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				ImGui::SetNextItemWidth(100);
 				ImGui::SliderFloat("Font Scale", &s.fontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Spam Font Scale", &s.spamFontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SliderFloat("Output Font Scale", &s.spamFontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 			}
 			ImGui::EndChild();
 			ImGui::EndTabItem();
@@ -888,6 +888,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					{ "Heals",      &s.showFCT_Heals },
 					{ "Crit Heals", &s.showFCT_CritHeals },
 					{ "Hit By",     &s.showFCT_HitBy },
+					{ "Icons",      &s.showFCT_Icons },
 				};
 
 				int fctCol = std::max(1, sizeX / 120);
@@ -906,6 +907,12 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				ImGui::SliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
 				ImGui::SliderFloat("Font Scale", &s.fctFontScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Icon Scale", &s.fctIconScale, 0.1f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Float Distance", &s.fctFloatDistance, 30.0f, 300.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetNextItemWidth(100);
+				ImGui::SliderFloat("Arc Scale", &s.fctArcScale, 0.0f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
 				ImGui::SliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);

@@ -22,6 +22,7 @@ std::optional<DamageRecord> MyDPSParser::Parse(const char* line, DWORD color)
 	if (TryParseMissedMe(sv, rec))    return rec;
 	if (TryParseCritHeal(sv, rec))    return rec;
 	if (TryParseDirectHeal(sv, rec))  return rec;
+	if (TryParseHealedBy(sv, rec))    return rec;
 	if (TryParseHitByNonMelee(sv, rec)) return rec;
 
 	if (!m_petName.empty())
@@ -365,6 +366,40 @@ bool MyDPSParser::TryParseDirectHeal(std::string_view line, DamageRecord& out)
 	else
 	{
 		return false;
+	}
+
+	out.attackVerb = "heal";
+	out.type = DamageType::DirectHeal;
+	return true;
+}
+
+bool MyDPSParser::TryParseHealedBy(std::string_view line, DamageRecord& out)
+{
+	constexpr std::string_view healedYou = " healed you for ";
+	auto healPos = line.find(healedYou);
+	if (healPos == std::string_view::npos)
+		return false;
+
+	out.targetName = m_charName;
+
+	constexpr std::string_view hitPts = " hit points";
+	auto hitPtsPos = line.find(hitPts, healPos + healedYou.size());
+	if (hitPtsPos == std::string_view::npos)
+		return false;
+
+	out.damage = ExtractNumber(line, healPos + healedYou.size(), hitPtsPos);
+	if (out.damage <= 0)
+		return false;
+
+	constexpr std::string_view byMarker = " by ";
+	auto byPos = line.find(byMarker, hitPtsPos);
+	if (byPos != std::string_view::npos)
+	{
+		auto spellStart = byPos + byMarker.size();
+		auto spellEnd = line.size();
+		if (spellEnd > 0 && line[spellEnd - 1] == '.')
+			spellEnd--;
+		out.spellName = std::string(line.substr(spellStart, spellEnd - spellStart));
 	}
 
 	out.attackVerb = "heal";

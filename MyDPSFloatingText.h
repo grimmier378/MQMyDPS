@@ -3,11 +3,13 @@
 #include "MyDPSData.h"
 
 #include <mq/Plugin.h>
+#include <mq/imgui/Widgets.h>
 #include <eqlib/graphics/CameraInterface.h>
 #include <eqlib/graphics/Bones.h>
 #include <eqlib/graphics/Actors.h>
 
 #include <chrono>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -17,15 +19,19 @@ struct FCTEntry
 	int         spawnID     = 0;
 	std::string displayText;
 	ImVec4      color       = ImVec4(1, 1, 1, 1);
-	float       xOffset     = 0.0f;
+	float       dirAngle    = 0.0f;
+	float       arcAmount   = 0.0f;
 	float       lifetime    = 0.0f;
 	float       maxLifetime = 2.5f;
 	bool        active      = false;
+	int         iconCellID  = -1;
 };
 
 class FCTManager
 {
 public:
+	~FCTManager();
+
 	void AddEntry(const DamageRecord& record, const MyDPSSettings& settings);
 	void Update(float deltaTime);
 	void Render(const MyDPSSettings& settings);
@@ -35,13 +41,27 @@ private:
 	static constexpr int   MAX_ENTRIES     = 64;
 	static constexpr float POP_DURATION    = 0.3f;
 	static constexpr float POP_START_SCALE = 1.4f;
-	static constexpr float FADE_START      = 0.6f;
-	static constexpr float FLOAT_DISTANCE  = 150.0f;
-	static constexpr float SPREAD_RANGE    = 60.0f;
+	static constexpr float FADE_START       = 0.6f;
+	static constexpr int   NUM_ANGLE_SLOTS  = 8;
+	static constexpr float ARC_BASE         = 20.0f;
 
 	std::vector<FCTEntry> m_entries;
 	int m_nextSlot = 0;
-	std::unordered_map<int, int> m_spawnHitCounter;
+	std::unordered_map<int, int> m_spawnAngleSlot;
+	std::mt19937 m_rng{ std::random_device{}() };
+	CTextureAnimation* m_pSpellIconAnim = nullptr;
+
+	void EnsureIconAnimation()
+	{
+		if (!m_pSpellIconAnim && pSidlMgr)
+		{
+			if (CTextureAnimation* temp = pSidlMgr->FindAnimation("A_SpellGems"))
+			{
+				m_pSpellIconAnim = new CTextureAnimation();
+				*m_pSpellIconAnim = *temp;
+			}
+		}
+	}
 
 	static float EaseOutQuad(float t) { return t * (2.0f - t); }
 
@@ -57,6 +77,12 @@ private:
 	bool IsTypeEnabled(DamageType type, const MyDPSSettings& settings) const;
 	bool ProjectSpawnToScreen(int spawnID, float& outX, float& outY) const;
 };
+
+inline FCTManager::~FCTManager()
+{
+	delete m_pSpellIconAnim;
+	m_pSpellIconAnim = nullptr;
+}
 
 inline bool FCTManager::IsTypeEnabled(DamageType type, const MyDPSSettings& settings) const
 {
@@ -99,6 +125,7 @@ inline void FCTManager::AddEntry(const DamageRecord& record, const MyDPSSettings
 	entry.lifetime    = 0.0f;
 	entry.maxLifetime = settings.fctLifetime;
 	entry.active      = true;
+	entry.iconCellID  = record.spellIconID;
 
 	if (record.type == DamageType::DirectHeal || record.type == DamageType::CritHeal)
 		entry.displayText = fmt::format("+{}", FormatNumber(record.damage));
@@ -113,16 +140,28 @@ inline void FCTManager::AddEntry(const DamageRecord& record, const MyDPSSettings
 	auto it = settings.damageColors.find(colorKey);
 	entry.color = (it != settings.damageColors.end()) ? it->second : ImVec4(1, 1, 1, 1);
 
-	int& counter = m_spawnHitCounter[record.targetSpawnID];
-	float side = (counter % 2 == 0) ? -1.0f : 1.0f;
-	float magnitude = 15.0f + (counter / 2) * 20.0f;
-	entry.xOffset = side * std::min(magnitude, SPREAD_RANGE);
-	counter++;
+	static constexpr float angleSlots[NUM_ANGLE_SLOTS] = {
+		-1.5708f,            // -90°   straight up
+		-1.1781f,            // -67.5° up-right
+		-1.9635f,            // -112.5° up-left
+		-0.7854f,            // -45°   diagonal right
+		-2.3562f,            // -135°  diagonal left
+		-0.5236f,            // -30°   steep right
+		-2.6180f,            // -150°  steep left
+		-1.3744f,            // -78.75° slight right of up
+	};
+
+	int& slot = m_spawnAngleSlot[record.targetSpawnID];
+	entry.dirAngle = angleSlots[slot % NUM_ANGLE_SLOTS];
+	slot++;
+
+	std::uniform_real_distribution<float> arcDist(0.5f, 1.0f);
+	float arcSign = (slot % 2 == 0) ? 1.0f : -1.0f;
+	entry.arcAmount = arcSign * ARC_BASE * arcDist(m_rng) * settings.fctArcScale;
 }
 
 inline void FCTManager::Update(float deltaTime)
 {
-	bool anyActiveForSpawn = false;
 	for (auto& entry : m_entries)
 	{
 		if (!entry.active)
@@ -133,7 +172,7 @@ inline void FCTManager::Update(float deltaTime)
 			entry.active = false;
 	}
 
-	for (auto it = m_spawnHitCounter.begin(); it != m_spawnHitCounter.end();)
+	for (auto it = m_spawnAngleSlot.begin(); it != m_spawnAngleSlot.end();)
 	{
 		bool found = false;
 		for (const auto& entry : m_entries)
@@ -145,7 +184,7 @@ inline void FCTManager::Update(float deltaTime)
 			}
 		}
 		if (!found)
-			it = m_spawnHitCounter.erase(it);
+			it = m_spawnAngleSlot.erase(it);
 		else
 			++it;
 	}
@@ -155,7 +194,7 @@ inline void FCTManager::Clear()
 {
 	for (auto& entry : m_entries)
 		entry.active = false;
-	m_spawnHitCounter.clear();
+	m_spawnAngleSlot.clear();
 	m_nextSlot = 0;
 }
 
@@ -172,9 +211,10 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 	glm::vec3 worldPos;
 
 	CActorInterface* pActor = pSpawn->mActorClient.pActor;
-	if (pActor && pActor->GetBoneByIndex(eBoneHead))
+	EBones boneIdx = (pSpawn->Type == SPAWN_PLAYER) ? eBoneChest : eBoneLegs;
+	if (pActor && pActor->GetBoneByIndex(boneIdx))
 	{
-		pActor->GetBoneWorldPosition(eBoneHead, reinterpret_cast<CVector3*>(&worldPos), false);
+		pActor->GetBoneWorldPosition(boneIdx, reinterpret_cast<CVector3*>(&worldPos), false);
 	}
 	else
 	{
@@ -213,6 +253,9 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 	if (!font || !drawList)
 		return;
 
+	if (settings.showFCT_Icons)
+		EnsureIconAnimation();
+
 	for (const auto& entry : m_entries)
 	{
 		if (!entry.active)
@@ -227,7 +270,16 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 		float popT = std::min(entry.lifetime / POP_DURATION, 1.0f);
 		float scale = POP_START_SCALE + (1.0f - POP_START_SCALE) * EaseOutQuad(popT);
 
-		float floatY = -FLOAT_DISTANCE * EaseOutQuad(t);
+		float distance = settings.fctFloatDistance * EaseOutQuad(t);
+		float dx = cosf(entry.dirAngle) * distance;
+		float dy = sinf(entry.dirAngle) * distance;
+
+		float arcT = sinf(3.14159f * t);
+		float perpX = -sinf(entry.dirAngle) * entry.arcAmount * arcT;
+		float perpY =  cosf(entry.dirAngle) * entry.arcAmount * arcT;
+
+		float floatX = dx + perpX;
+		float floatY = dy + perpY;
 
 		float alpha = 1.0f;
 		if (t > FADE_START)
@@ -239,15 +291,37 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 		float fontSize = settings.fctBaseFontSize * settings.fctFontScale * scale;
 		ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0, entry.displayText.c_str());
 
-		float x = screenX + entry.xOffset - textSize.x * 0.5f;
+		bool drawIcon = settings.showFCT_Icons && entry.iconCellID >= 0 && m_pSpellIconAnim;
+		float iconSize = fontSize * settings.fctIconScale;
+		float iconPad  = drawIcon ? 2.0f * scale : 0.0f;
+		float totalWidth = textSize.x + (drawIcon ? (iconSize + iconPad) : 0.0f);
+
+		float blockX = screenX + floatX - totalWidth * 0.5f;
 		float y = screenY + floatY;
+
+		float iconX = blockX;
+		float textX = drawIcon ? (blockX + iconSize + iconPad) : blockX;
 
 		float shadowOff = settings.fctShadowOffset * (fontSize / settings.fctBaseFontSize);
 		ImU32 shadowCol = ImGui::ColorConvertFloat4ToU32(ImVec4(0, 0, 0, alpha * 0.8f));
-		drawList->AddText(font, fontSize, ImVec2(x + shadowOff, y + shadowOff), shadowCol, entry.displayText.c_str());
+		drawList->AddText(font, fontSize, ImVec2(textX + shadowOff, y + shadowOff), shadowCol, entry.displayText.c_str());
 
 		ImU32 col = ImGui::ColorConvertFloat4ToU32(
 			ImVec4(entry.color.x, entry.color.y, entry.color.z, entry.color.w * alpha));
-		drawList->AddText(font, fontSize, ImVec2(x, y), col, entry.displayText.c_str());
+		drawList->AddText(font, fontSize, ImVec2(textX, y), col, entry.displayText.c_str());
+
+		if (drawIcon)
+		{
+			m_pSpellIconAnim->SetCurCell(entry.iconCellID);
+			uint8_t alpha255 = static_cast<uint8_t>(alpha * 255.0f);
+			MQColor tint(255, 255, 255, alpha255);
+			int iSize = static_cast<int>(iconSize);
+			mq::imgui::DrawTextureAnimation(
+				drawList,
+				m_pSpellIconAnim,
+				CXPoint(static_cast<int>(iconX), static_cast<int>(y)),
+				CXSize(iSize, iSize),
+				tint);
+		}
 	}
 }

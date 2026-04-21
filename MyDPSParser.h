@@ -26,6 +26,7 @@ private:
 	bool TryParseCritHeal(std::string_view line, DamageRecord& out);
 	bool TryParseHitByNonMelee(std::string_view line, DamageRecord& out);
 	bool TryParseDirectHeal(std::string_view line, DamageRecord& out);
+	bool TryParseHealedBy(std::string_view line, DamageRecord& out);
 	bool TryParsePetMelee(std::string_view line, DamageRecord& out);
 	bool TryParsePetNonMelee(std::string_view line, DamageRecord& out);
 

@@ -172,14 +172,14 @@ static void MyDPSCommand(PlayerClient*, const char* szLine)
 	if (ci_equals(arg, "spam"))
 	{
 		g_dpsEngine->showCombatSpam = !g_dpsEngine->showCombatSpam;
-		WriteChatf("\at[MQMyDPS]\ax Combat spam %s.", g_dpsEngine->showCombatSpam ? "shown" : "hidden");
+		WriteChatf("\at[MQMyDPS]\ax Combat output %s.", g_dpsEngine->showCombatSpam ? "shown" : "hidden");
 		return;
 	}
 
 	if (ci_equals(arg, "lock"))
 	{
 		g_dpsEngine->settings.spamClickThrough = !g_dpsEngine->settings.spamClickThrough;
-		WriteChatf("\at[MQMyDPS]\ax Spam window %s.", g_dpsEngine->settings.spamClickThrough ? "locked" : "unlocked");
+		WriteChatf("\at[MQMyDPS]\ax Combat output window %s.", g_dpsEngine->settings.spamClickThrough ? "locked" : "unlocked");
 		return;
 	}
 
@@ -264,6 +264,13 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.showFCT_Heals     = GetPrivateProfileBool("FCT", "Heals", true, path);
 	settings.showFCT_CritHeals = GetPrivateProfileBool("FCT", "CritHeals", true, path);
 	settings.showFCT_HitBy     = GetPrivateProfileBool("FCT", "HitBy", true, path);
+	settings.showFCT_Icons     = GetPrivateProfileBool("FCT", "Icons", true, path);
+	GetPrivateProfileString("FCT", "IconScale", "1.0", buf, sizeof(buf), path);
+	settings.fctIconScale = static_cast<float>(atof(buf));
+	GetPrivateProfileString("FCT", "FloatDistance", "150.0", buf, sizeof(buf), path);
+	settings.fctFloatDistance = static_cast<float>(atof(buf));
+	GetPrivateProfileString("FCT", "ArcScale", "1.0", buf, sizeof(buf), path);
+	settings.fctArcScale = static_cast<float>(atof(buf));
 	GetPrivateProfileString("FCT", "Lifetime", "2.5", buf, sizeof(buf), path);
 	settings.fctLifetime = static_cast<float>(atof(buf));
 	GetPrivateProfileString("FCT", "BaseFontSize", "24.0", buf, sizeof(buf), path);
@@ -319,6 +326,10 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileBool("FCT", "Heals", settings.showFCT_Heals, path);
 	WritePrivateProfileBool("FCT", "CritHeals", settings.showFCT_CritHeals, path);
 	WritePrivateProfileBool("FCT", "HitBy", settings.showFCT_HitBy, path);
+	WritePrivateProfileBool("FCT", "Icons", settings.showFCT_Icons, path);
+	WritePrivateProfileString("FCT", "IconScale", floatStr(settings.fctIconScale), path);
+	WritePrivateProfileString("FCT", "FloatDistance", floatStr(settings.fctFloatDistance), path);
+	WritePrivateProfileString("FCT", "ArcScale", floatStr(settings.fctArcScale), path);
 	WritePrivateProfileString("FCT", "Lifetime", floatStr(settings.fctLifetime), path);
 	WritePrivateProfileString("FCT", "BaseFontSize", floatStr(settings.fctBaseFontSize), path);
 	WritePrivateProfileString("FCT", "FontScale", floatStr(settings.fctFontScale), path);
@@ -510,6 +521,7 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			record.targetSpawnID = pLocalPlayer->SpawnID;
 	}
 
+	record.spellIconID = ResolveSpellIconID(record);
 	fctManager.AddEntry(record, settings);
 	recentRecords.push_back(std::move(record));
 }
@@ -617,6 +629,7 @@ void MyDPSEngine::ResetAll()
 	sequenceCounter = 0;
 	m_syntheticIDCounter = 0;
 	m_lastCastSpellID = -1;
+	m_lastCastSpellIcon = -1;
 	m_lastCastTargetID = 0;
 
 	battleDamage = 0;
@@ -779,6 +792,9 @@ void MyDPSEngine::TrackDoTCasting()
 	{
 		m_lastCastSpellID = pLocalPlayer->CastingData.SpellID;
 		m_lastCastTargetID = pLocalPlayer->CastingData.TargetID;
+
+		if (EQ_Spell* pCasting = GetSpellByID(m_lastCastSpellID))
+			m_lastCastSpellIcon = pCasting->SpellIcon;
 	}
 	else if (m_lastCastSpellID != -1)
 	{
@@ -792,6 +808,7 @@ void MyDPSEngine::TrackDoTCasting()
 				dot.targetSpawnID = m_lastCastTargetID;
 				dot.targetName = pSpawnTarget->DisplayedName;
 				dot.spellName = pSpell->Name;
+				dot.spellIconID = pSpell->SpellIcon;
 				dot.castTime = std::chrono::steady_clock::now();
 				activeDoTs.push_back(std::move(dot));
 			}
@@ -808,6 +825,70 @@ void MyDPSEngine::TrackDoTCasting()
 				return age > 5;
 			}),
 		activeDoTs.end());
+}
+
+int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
+{
+	switch (record.type)
+	{
+	case DamageType::DirectHeal:
+	case DamageType::CritHeal:
+		return 0;
+
+	case DamageType::Melee:
+		if (record.attackVerb == "kick")
+			return 201;
+		if (record.attackVerb == "bash")
+			return 155;
+		return 49;
+
+	case DamageType::PetMelee:
+		return 3;
+
+	case DamageType::Crit:
+	{
+		if (!record.spellName.empty())
+		{
+			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+				return pSpell->SpellIcon;
+		}
+		return 50;
+	}
+
+	case DamageType::DoT:
+	{
+		if (!record.spellName.empty())
+		{
+			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+				return pSpell->SpellIcon;
+
+			for (const auto& dot : activeDoTs)
+			{
+				if (dot.spellName == record.spellName && dot.spellIconID >= 0)
+					return dot.spellIconID;
+			}
+		}
+		return -1;
+	}
+
+	case DamageType::PetNonMelee:
+		return 55;
+
+	case DamageType::NonMelee:
+	{
+		if (!record.spellName.empty())
+		{
+			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+				return pSpell->SpellIcon;
+		}
+		if (m_lastCastSpellIcon >= 0)
+			return m_lastCastSpellIcon;
+		return -1;
+	}
+
+	default:
+		return -1;
+	}
 }
 
 void MyDPSEngine::RemoveActiveDoTs(int spawnID)
