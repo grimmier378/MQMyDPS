@@ -65,7 +65,7 @@
             </tr>
             <tr>
                 <td>RenderCombatSpam</td>
-                <td><code>/mydps spam</code> or "Show Combat Spam" checkbox</td>
+                <td><code>/mydps spam</code> or "Show Combat Output" checkbox</td>
                 <td><code>engine.showCombatSpam &amp;&amp; engine.tracking</code></td>
                 <td>Floating overlay with recent events newest-at-top. Requires both visibility flag and tracking to be active. Font scaled by <code>spamFontScale</code>.</td>
             </tr>
@@ -80,7 +80,7 @@
 
     <h3>Theme Wrapping</h3>
 
-    <p>All three windowed render calls (CombatSpam, MainWindow, ConfigWindow) apply the
+    <p>All three windowed render calls (Combat Output, MainWindow, ConfigWindow) apply the
     user-selected theme before <code>ImGui::Begin</code> and reset it after
     <code>ImGui::End</code>:</p>
 
@@ -93,7 +93,7 @@ ImGuiTheme::ResetTheme(oldStyle);</code></pre>
 
     <h3>Save-on-Close Pattern</h3>
 
-    <p>All three closeable windows (Main, Config, Combat Spam) implement a save-on-close
+    <p>All three closeable windows (Main, Config, Combat Output) implement a save-on-close
     pattern. Before drawing, the renderer caches the window's open state. After
     <code>ImGui::End()</code>, if the window transitioned from open to closed (user
     clicked the X button), it calls <code>engine.SaveCharacterSettings()</code> to
@@ -141,7 +141,7 @@ ImGui::PopFont();</code></pre>
     <p>Passing <code>nullptr</code> as the first argument means "use the default font, just
     at a different size". <code>FontSizeBase</code> is the base size of the current font.
     Multiplying it by <code>fontScale</code> (range 0.5&ndash;2.0) scales the entire
-    window's text proportionally. The combat spam overlay uses <code>spamFontScale</code>
+    window's text proportionally. The Combat Output overlay uses <code>spamFontScale</code>
     the same way, allowing the overlay to be sized independently from the main window.</p>
 
     <h2>Main Window</h2>
@@ -462,7 +462,7 @@ static constexpr int GRAPH_MAX_BACK = 250;  // max history depth</code></pre>
     <p>This prevents the axes from ever going negative, which would be visually confusing
     for a damage chart.</p>
 
-    <h2>Combat Spam Overlay</h2>
+    <h2>Combat Output Overlay</h2>
 
     <h3>Window Flags</h3>
 
@@ -470,11 +470,12 @@ static constexpr int GRAPH_MAX_BACK = 250;  // max history depth</code></pre>
 if (engine.settings.spamClickThrough)
     flags |= ImGuiWindowFlags_NoInputs;</code></pre>
 
-    <p>The spam overlay is always borderless and never steals focus when it first appears.
+    <p>The Combat Output window is titled <code>"Combat Output##CharName"</code> and is always
+    borderless and never steals focus when it first appears.
     When <code>spamClickThrough</code> is true (the default), <code>ImGuiWindowFlags_NoInputs</code>
     is added. This flag tells ImGui to pass all mouse input (clicks, hover, scroll) through
     the window to whatever is underneath it. The result is that you can click on EverQuest's
-    game world through the spam overlay without it intercepting any mouse events.</p>
+    game world through the Combat Output overlay without it intercepting any mouse events.</p>
 
     <p>When <code>spamClickThrough</code> is false, the overlay is a normal interactive window
     that you can drag by clicking its body. This is useful if you want to reposition it, but
@@ -482,7 +483,7 @@ if (engine.settings.spamClickThrough)
     overlay instead.</p>
 
     <p>The <code>/mydps lock</code> command toggles <code>spamClickThrough</code> at runtime.
-    The "Lock Spam Window" checkbox in the config window does the same thing.</p>
+    The "Lock Combat Output" checkbox in the config window does the same thing.</p>
 
     <h3>Background Transparency</h3>
 
@@ -495,7 +496,7 @@ if (engine.settings.spamClickThrough)
 
     <h3>Newest-at-Top Rendering</h3>
 
-    <p>The spam overlay iterates <code>engine.recentRecords</code> using a <em>reverse</em>
+    <p>The Combat Output overlay iterates <code>engine.recentRecords</code> using a <em>reverse</em>
     iterator (<code>rbegin</code> to <code>rend</code>), so the most recent event always
     appears at the top of the overlay. Events older than <code>displayTime</code> seconds
     are skipped:</p>
@@ -555,18 +556,18 @@ BoolEntry bools[] = {
     { "Show Crit Heals",   &amp;s.showCritHeals },
     { "Show Damage Shield",&amp;s.showDS },
     { "Track Pet",         &amp;s.addPet },
-    { "Show Combat Spam",  &amp;engine.showCombatSpam },
-    { "Sort Newest First", &amp;s.sortNewest },
-    { "Auto Start",        &amp;s.autoStart },
-    { "Lock Spam Window",  &amp;s.spamClickThrough },
+    { "Show Combat Output", &amp;engine.showCombatSpam },
+    { "Sort Newest First",  &amp;s.sortNewest },
+    { "Auto Start",         &amp;s.autoStart },
+    { "Lock Combat Output", &amp;s.spamClickThrough },
 };</code></pre>
 
-    <p>Note that "Show Combat Spam" points to <code>engine.showCombatSpam</code> directly
+    <p>Note that "Show Combat Output" points to <code>engine.showCombatSpam</code> directly
     (not a field on <code>MyDPSSettings</code>), because it is a window visibility flag
     rather than an option setting. Adding a new boolean setting requires exactly one line
     in the <code>bools</code> array &mdash; the rendering loop handles layout automatically.</p>
 
-    <p>Sliders (Display Time, Battle End Delay, Font Scale, Spam Font Scale, and the FCT
+    <p>Sliders (Display Time, Battle End Delay, Font Scale, Output Font Scale, and the FCT
     sliders) are direct <code>ImGui::SliderInt</code> / <code>ImGui::SliderFloat</code>
     calls rather than data-driven structs.</p>
 
@@ -577,9 +578,9 @@ BoolEntry bools[] = {
     <table>
         <thead><tr><th>Tab</th><th>Contents</th><th>Column width (pixels per col)</th></tr></thead>
         <tbody>
-            <tr><td>Display</td><td>12 bool checkboxes in a table, plus Display Time slider, Battle End Delay slider, Font Scale slider, Spam Font Scale slider</td><td>165</td></tr>
-            <tr><td>Colors</td><td>Background color picker + all damageColors entries in a table</td><td>150</td></tr>
-            <tr><td>FCT</td><td>Enable FCT master checkbox, 8 per-type toggles in a table, plus Base Font Size, Font Scale, Shadow Offset, Lifetime sliders</td><td>120 (toggles)</td></tr>
+            <tr><td>Display</td><td>12 bool checkboxes in a table, plus Display Time slider, Battle End Delay slider, Font Scale slider, Output Font Scale slider</td><td>165</td></tr>
+            <tr><td>Colors</td><td>Background color picker + UI-only damageColors entries (background, dmg-target, heal-target, dps, duration, avg, total) in a table</td><td>150</td></tr>
+            <tr><td>FCT</td><td>Enable FCT master checkbox, Distinct Melee checkbox, unified type table (Type | Color | Icon | Reset), plus Base Font Size, Font Scale, Shadow Offset, Lifetime, Float Distance, Arc Scale, Icon Scale sliders</td><td>120 (toggles)</td></tr>
             <tr><td>Theme</td><td>Theme picker combo via <code>ImGuiTheme::DrawThemePicker</code></td><td>&mdash;</td></tr>
         </tbody>
     </table>
@@ -607,11 +608,14 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
     <h3>Colors Tab</h3>
 
     <p>The Colors tab first renders a <code>ColorEdit4</code> for the background color
-    (spam overlay background with alpha). Then it iterates all entries in
-    <code>settings.damageColors</code> and renders one <code>ColorEdit4</code> per entry
-    in a table with <code>sizeX / 150</code> columns, using
+    (Combat Output overlay background with alpha). Then it shows only the UI-only subset
+    of <code>settings.damageColors</code> &mdash; specifically: background, dmg-target,
+    heal-target, dps, duration, avg, and total. Each is rendered as one
+    <code>ColorEdit4</code> in a table with <code>sizeX / 150</code> columns, using
     <code>ImGuiColorEditFlags_NoInputs</code> to show only the colored swatch,
-    keeping the tab compact.</p>
+    keeping the tab compact. All FCT-related colors (melee verbs, crit, dot, non-melee,
+    heal, critHeals, pet, hit, etc.) have moved to the FCT tab's unified type table
+    where they are shown alongside their icon configuration.</p>
 
     <h3>FCT Tab</h3>
 
@@ -620,26 +624,44 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
     <ul>
         <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling
         <code>settings.showFCT</code>.</li>
+        <li><strong>Distinct Melee</strong> &mdash; Checkbox toggle. When enabled,
+        individual melee verbs (crush, slash, hit, etc.) are treated as distinct
+        configurable types in the table below.</li>
     </ul>
 
-    <p>Below the master toggle, 8 per-type checkboxes are rendered in a dynamic-column
-    table (120px per column):</p>
+    <p>Below the master toggle, a unified type table is rendered with 4 columns:</p>
 
     <table>
-        <thead><tr><th>Label</th><th>Setting</th><th>Default</th></tr></thead>
+        <thead><tr><th>Column</th><th>Description</th></tr></thead>
         <tbody>
-            <tr><td>Melee</td><td><code>showFCT_Melee</code></td><td>true</td></tr>
-            <tr><td>DD</td><td><code>showFCT_DD</code></td><td>true</td></tr>
-            <tr><td>DoT</td><td><code>showFCT_DoT</code></td><td>true</td></tr>
-            <tr><td>Pet</td><td><code>showFCT_Pet</code></td><td>true</td></tr>
-            <tr><td>Crit</td><td><code>showFCT_Crit</code></td><td>true</td></tr>
-            <tr><td>Heals</td><td><code>showFCT_Heals</code></td><td>true</td></tr>
-            <tr><td>Crit Heals</td><td><code>showFCT_CritHeals</code></td><td>true</td></tr>
-            <tr><td>Hit By</td><td><code>showFCT_HitBy</code></td><td>true</td></tr>
+            <tr><td>Type</td><td>The FCT type name (e.g. Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, and all melee verb colors formerly in the Colors tab)</td></tr>
+            <tr><td>Color</td><td>A <code>ColorEdit4</code> swatch for that type's color (from <code>settings.damageColors</code>). Uses <code>ImGuiColorEditFlags_NoInputs</code>.</td></tr>
+            <tr><td>Icon</td><td>A clickable icon button showing the current icon for that type. Clicking opens the Icon Picker window for that type.</td></tr>
+            <tr><td>Reset</td><td>A button to reset that type's color and icon back to defaults.</td></tr>
         </tbody>
     </table>
 
-    <p>Below the toggles, 4 sliders control the visual properties:</p>
+    <p>This unified table consolidates all FCT-related colors (previously shown in the
+    Colors tab) with icon configuration in a single location. Each row represents one
+    configurable FCT type, including melee verbs (crush, slash, hit, etc.), crit, dot,
+    non-melee, pet, heal, critHeals, and hit-by types.</p>
+
+    <h4>Icon Picker Window</h4>
+
+    <p>Clicking an icon cell in the unified type table opens a separate ImGui window
+    titled <code>"Icon Picker - TypeName##FCTIconPicker"</code>. This window contains:</p>
+
+    <ul>
+        <li><strong>Spell/Item tabs</strong> &mdash; Two tabs selecting between the spell
+        icon atlas and the item icon atlas as the icon source.</li>
+        <li><strong>Scale slider</strong> &mdash; Controls the display size of icons in the
+        picker grid for easier browsing.</li>
+        <li><strong>Page navigation</strong> &mdash; Previous/Next buttons to page through
+        the available icons in the selected atlas. Clicking an icon in the grid selects it
+        for that FCT type and closes the picker.</li>
+    </ul>
+
+    <p>Below the type table, 7 sliders control the visual properties:</p>
 
     <table>
         <thead><tr><th>Label</th><th>Setting</th><th>Range</th><th>Default</th><th>Format</th></tr></thead>
@@ -648,10 +670,13 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
             <tr><td>Font Scale</td><td><code>fctFontScale</code></td><td>0.5 &ndash; 3.0</td><td>1.5</td><td>%.2f</td></tr>
             <tr><td>Shadow Offset</td><td><code>fctShadowOffset</code></td><td>0.0 &ndash; 5.0</td><td>2.0</td><td>%.1f</td></tr>
             <tr><td>Lifetime (s)</td><td><code>fctLifetime</code></td><td>1.0 &ndash; 5.0</td><td>2.5</td><td>%.1f</td></tr>
+            <tr><td>Float Distance</td><td><code>fctFloatDistance</code></td><td>50.0 &ndash; 300.0</td><td>150.0</td><td>%.0f</td></tr>
+            <tr><td>Arc Scale</td><td><code>fctArcScale</code></td><td>10.0 &ndash; 120.0</td><td>60.0</td><td>%.0f</td></tr>
+            <tr><td>Icon Scale</td><td><code>fctIconScale</code></td><td>0.5 &ndash; 3.0</td><td>1.0</td><td>%.2f</td></tr>
         </tbody>
     </table>
 
-    <p>All 4 sliders use <code>ImGuiSliderFlags_AlwaysClamp</code> to prevent values outside
+    <p>All 7 sliders use <code>ImGuiSliderFlags_AlwaysClamp</code> to prevent values outside
     the specified range. Each slider has a fixed width of 100 pixels.</p>
 
     <h2>Floating Combat Text Rendering</h2>

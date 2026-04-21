@@ -85,11 +85,12 @@
         heal reports, and the <code>/mydps report</code> command output are automatically
         sent to a dedicated "MyDPS" channel in MQMyChat using MQ color codes.</li>
         <li><strong>Floating combat text (FCT):</strong> Bone-anchored floating numbers
-        rendered directly over mob heads in the 3D game world. Uses the head bone for
+        rendered directly over mob heads in the 3D game world. Uses the chest bone for
         position projection when available, with avatar-height fallback. Features
         pop-in animation (scale from 1.4x to 1.0x), upward float, fade-out, drop shadow,
-        alternating left/right spread, and per-type toggles (Melee, DD, DoT, Pet, Crit,
-        Heals, Crit Heals, Hit By). Each type uses a distinct color from user color settings
+        arc-based directional spread, optional damage-type icons, and per-type toggles
+        (Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By). Each type uses a distinct
+        color from user color settings
         &mdash; melee uses the "hit" color key since melee subtypes (crush, slash, etc.) are
         only distinguished in the combat spam overlay. Configurable via <code>/mydps fct</code>
         and the <code>[FCT]</code> INI section.</li>
@@ -172,7 +173,7 @@
                 <td>Header-only FCT (floating combat text) system.
                 <code>FCTEntry</code> struct and <code>FCTManager</code> class with
                 bone-anchored 3D-to-screen projection, pop-in animation, drop shadow,
-                alternating spread, fade-out, and a 64-entry ring buffer. Uses
+                arc-based directional spread, fade-out, and a 64-entry ring buffer. Uses
                 <code>eqlib/graphics/CameraInterface.h</code>,
                 <code>eqlib/graphics/Bones.h</code>, and
                 <code>eqlib/graphics/Actors.h</code>.</td>

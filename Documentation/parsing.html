@@ -62,7 +62,7 @@
     <h2>Parse Flow</h2>
 
     <p><code>Parse(line, color)</code> wraps the raw C string in a <code>string_view</code>
-    (zero-copy), then tries each of the 14 <code>TryParse*</code> methods in order. The
+    (zero-copy), then tries each of the 15 <code>TryParse*</code> methods in order. The
     first method that returns <code>true</code> wins, and the populated <code>DamageRecord</code>
     is returned as an <code>std::optional</code>. If no method matches, <code>nullopt</code>
     is returned and the caller (<code>ProcessChat</code>) ignores the line.</p>
@@ -146,19 +146,25 @@
                 <td>DirectHeal</td>
             </tr>
             <tr>
-                <td>12</td><td>TryParseHitByNonMelee</td>
+                <td>12</td><td>TryParseHealedBy</td>
+                <td>Contains " healed you for ", contains " hit points by "</td>
+                <td><code>Clericname healed you for 3000 hit points by Celestial Remedy.</code></td>
+                <td>DirectHeal</td>
+            </tr>
+            <tr>
+                <td>13</td><td>TryParseHitByNonMelee</td>
                 <td>Contains " points of non-melee damage", contains " YOU for ", contains " hit "</td>
                 <td><code>A skeleton hit YOU for 200 points of non-melee damage.</code></td>
                 <td>HitByNonMelee</td>
             </tr>
             <tr>
-                <td>13</td><td>TryParsePetMelee</td>
+                <td>14</td><td>TryParsePetMelee</td>
                 <td>Starts with "[PetName] ", contains " for ", contains " points of damage"</td>
                 <td><code>Gobber hits a skeleton for 75 points of damage.</code></td>
                 <td>PetMelee</td>
             </tr>
             <tr>
-                <td>14</td><td>TryParsePetNonMelee</td>
+                <td>15</td><td>TryParsePetNonMelee</td>
                 <td>Starts with "[PetName] hit ", contains " for ", contains " points of non-melee damage"</td>
                 <td><code>Gobber hit a skeleton for 120 points of non-melee damage.</code></td>
                 <td>PetNonMelee</td>
@@ -251,6 +257,35 @@
     amount, and optionally <code>spellName</code> set if Format B was matched. The spell
     name is stored in <code>DamageRecord::spellName</code> for future use but is not
     currently used for attribution (heals are keyed by player name, not spell name).</p>
+
+    <h3>TryParseHealedBy</h3>
+
+    <p>This method matches incoming heals from other players directed at you. The EQ
+    message format is:</p>
+
+    <pre><code>Clericname healed you for 3000 hit points by Celestial Remedy.</code></pre>
+
+    <p>The method works as follows:</p>
+    <ol>
+        <li>Finds " healed you for " in the line. If not found, returns false.</li>
+        <li>Extracts the healer name from the text before " healed you for ".</li>
+        <li>Extracts the heal amount (the number after " healed you for ").</li>
+        <li>Optionally extracts the spell name from after " hit points by " (stripping the
+        trailing period).</li>
+    </ol>
+
+    <p>The resulting record has <code>type=DirectHeal</code>, <code>attackVerb="heal"</code>,
+    <code>targetName</code> set to <code>m_charName</code> (your own character name, since
+    you are the heal target), and <code>damage</code> set to the heal amount. The healer's
+    name is stored in the record for attribution. The spell name is stored in
+    <code>DamageRecord::spellName</code> if the " hit points by " format is present.</p>
+
+    <pre><code>"Clericname healed you for 3000 hit points by Celestial Remedy."
+ |--healer--|                    |amt|          |---spell name---|
+ healer = "Clericname"
+ targetName = m_charName (you are the target)
+ damage = 3000
+ spellName = "Celestial Remedy"</code></pre>
 
     <h3>TryParsePetMelee and TryParsePetNonMelee</h3>
     <p>Both require the pet name to be set and non-empty. The pet name is set in

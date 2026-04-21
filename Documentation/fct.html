@@ -28,6 +28,15 @@
 
     <p><em>Last Updated: 2026-04-20</em></p>
 
+    <div class="note">
+        <strong>April 2026 update:</strong> The alternating fan spread system (xOffset) has been
+        replaced with arc-based directional spread (dirAngle + arcAmount). Spell icons now render
+        next to FCT numbers. The bone anchor uses eBoneChest for player spawns and eBoneLegs for
+        NPC spawns. Custom icon overrides per damage type with a visual icon picker. Distinct
+        melee verb colors/icons toggle. Unified FCT type table in config UI. A_DragItem (item
+        icons) support alongside A_SpellGems.
+    </div>
+
     <h2>Overview</h2>
 
     <p>Floating Combat Text (FCT) renders damage and heal numbers directly over mob heads in
@@ -46,7 +55,8 @@
     <p>When enabled, every damage or heal event that passes the filter chain produces a floating
     number anchored to the target spawn. Outgoing damage shows plain numbers, heals show
     <code>+N</code>, and incoming damage shows <code>-N</code>. All numbers use the same
-    k/m abbreviation format as the rest of the plugin (e.g., "1.2k", "3.4m").</p>
+    k/m abbreviation format as the rest of the plugin (e.g., "1.2k", "3.4m"). Each number can
+    also display an EQ spell icon to its left, resolved from the damage type or spell data.</p>
 
     <h2>Architecture</h2>
 
@@ -72,7 +82,9 @@
             <tr><td><code>spawnID</code></td><td>int</td><td>0</td><td>Target spawn to anchor the text to. Must be positive for the entry to render.</td></tr>
             <tr><td><code>displayText</code></td><td>string</td><td></td><td>Formatted number: plain for outgoing damage, "+N" for heals, "-N" for incoming damage.</td></tr>
             <tr><td><code>color</code></td><td>ImVec4</td><td>white</td><td>Text color resolved from user's <code>damageColors</code> settings. Each type maps to a distinct color key.</td></tr>
-            <tr><td><code>xOffset</code></td><td>float</td><td>0</td><td>Horizontal spread offset in pixels to prevent overlap of rapid hits.</td></tr>
+            <tr><td><code>dirAngle</code></td><td>float</td><td>0.0</td><td>Direction angle in radians for the float path (from pre-defined upper-semicircle slots).</td></tr>
+            <tr><td><code>arcAmount</code></td><td>float</td><td>0.0</td><td>Perpendicular arc curve magnitude (signed). Creates a smooth curved path that peaks at the midpoint of the lifetime.</td></tr>
+            <tr><td><code>iconCellID</code></td><td>int</td><td>-1</td><td>Icon cell index. 0-499 = spell icon (A_SpellGems), 500+ = item icon (A_DragItem, cell = id - 500). -1 means no icon is drawn.</td></tr>
             <tr><td><code>lifetime</code></td><td>float</td><td>0</td><td>Elapsed time in seconds since this entry was created.</td></tr>
             <tr><td><code>maxLifetime</code></td><td>float</td><td>2.5</td><td>Total duration from <code>settings.fctLifetime</code>.</td></tr>
             <tr><td><code>active</code></td><td>bool</td><td>false</td><td>Whether this slot is currently in use.</td></tr>
@@ -95,13 +107,15 @@
 RecordDamage(record)
     |-- resolve spawn ID, accumulate damage/heals
     |-- assign pLocalPlayer->SpawnID for incoming types (if targetSpawnID <= 0)
+    |-- ResolveSpellIconID(record) -> iconCellID
     |
     v
 fctManager.AddEntry(record, settings)
     |-- filter chain (master toggle, spawnID, miss, damage, type toggle)
     |-- format display text (+/- prefix)
     |-- resolve color from damageColors (pet override)
-    |-- compute alternating fan spread xOffset
+    |-- assign direction angle from slot rotation + random arc curve
+    |-- set iconCellID from resolved spell icon
     |-- write to ring buffer slot
     |
     v
@@ -113,14 +127,15 @@ OnUpdateImGui -> RenderFloatingText(engine)
 fctManager.Update(deltaTime)
     |-- advance lifetime of all active entries
     |-- deactivate entries past maxLifetime
-    |-- clean m_spawnHitCounter for spawns with no active entries
+    |-- clean m_spawnAngleSlot for spawns with no active entries
     |
     v
 fctManager.Render(settings)
     |-- for each active entry:
     |       ProjectSpawnToScreen(spawnID) -> screenX, screenY
-    |       compute pop scale, float offset, alpha fade
+    |       compute pop scale, directional float offset (dx/dy + arc), alpha fade
     |       compute font size = baseFontSize * fontScale * popScale
+    |       draw spell icon (if iconCellID >= 0) to background draw list
     |       draw drop shadow to background draw list
     |       draw main text to background draw list
     </div>
@@ -193,26 +208,75 @@ fctManager.Render(settings)
     <p>All colors are user-configurable through the Colors section in the config window. If a
     color key is not found in the map, white (1, 1, 1, 1) is used as a fallback.</p>
 
-    <h3>Alternating Fan Spread</h3>
+    <h3>Spell Icons</h3>
+
+    <p>Each FCT entry can display an EQ spell icon to the left of the damage number. Icons are
+    loaded from the <code>A_SpellGems</code> <code>CTextureAnimation</code> via
+    <code>pSidlMgr->FindAnimation()</code> and drawn with
+    <code>mq::imgui::DrawTextureAnimation()</code> on the background draw list. The icon scales
+    with text height (modified by <code>fctIconScale</code>) and participates in all animations
+    (pop, float, fade). Icon alpha is applied through an MQColor tint.</p>
+
+    <p>Icon resolution happens in <code>MyDPSEngine::ResolveSpellIconID()</code>, which is called
+    from <code>RecordDamage</code> before <code>AddEntry</code>. The mapping by damage type:</p>
+
+    <table>
+        <thead><tr><th>DamageType</th><th>Icon Cell ID</th><th>Notes</th></tr></thead>
+        <tbody>
+            <tr><td>Melee</td><td>49</td><td>Generic melee icon. Kick uses 201, bash uses 155.</td></tr>
+            <tr><td>PetMelee</td><td>3</td><td></td></tr>
+            <tr><td>PetNonMelee</td><td>55</td><td></td></tr>
+            <tr><td>Crit (melee)</td><td>50</td><td></td></tr>
+            <tr><td>DirectHeal / CritHeal</td><td>0</td><td></td></tr>
+            <tr><td>NonMelee / DoT / Crit (spell)</td><td>dynamic</td><td>Looked up via <code>GetSpellByName()</code> or <code>GetSpellByID()</code> using <code>pSpell->SpellIcon</code>.</td></tr>
+            <tr><td>HitBy / HitByNonMelee</td><td>-1</td><td>No icon drawn for incoming damage.</td></tr>
+        </tbody>
+    </table>
+
+    <p>For bolt spells with travel time, <code>m_lastCastSpellIcon</code> persists the icon cell
+    ID until the next cast begins, so the icon is still available when the delayed damage event
+    arrives.</p>
+
+    <h3>Arc-Based Directional Spread</h3>
 
     <p>When multiple hits land on the same spawn in quick succession, the floating numbers
-    would stack directly on top of each other and become unreadable. The fan spread system
-    prevents this by alternating entries left and right with increasing offset.</p>
+    would stack directly on top of each other and become unreadable. The directional spread
+    system prevents this by sending consecutive hits along different angles in the upper
+    semicircle, each with a random perpendicular arc curve.</p>
 
-    <p>Each spawn has a per-spawn hit counter tracked in <code>m_spawnHitCounter</code>
-    (an <code>unordered_map&lt;int, int&gt;</code> keyed by spawn ID). The counter determines
-    the offset:</p>
+    <p>Eight pre-defined angle slots cover the upper semicircle from -150 degrees to -30
+    degrees (in screen coordinates, where negative Y is up). The slots are: straight up,
+    up-right, up-left, diagonal right, diagonal left, steep right, steep left, slight right.
+    Each spawn has a per-spawn angle slot index tracked in <code>m_spawnAngleSlot</code>
+    (an <code>unordered_map&lt;int, int&gt;</code> keyed by spawn ID) that cycles through
+    these slots so consecutive hits go different directions.</p>
 
-    <pre><code>int&amp; counter = m_spawnHitCounter[record.targetSpawnID];
-float side = (counter % 2 == 0) ? -1.0f : 1.0f;
-float magnitude = 15.0f + (counter / 2) * 20.0f;
-entry.xOffset = side * std::min(magnitude, SPREAD_RANGE);
-counter++;</code></pre>
+    <p>Each entry also receives a random perpendicular arc curve (<code>arcAmount</code>)
+    based on <code>ARC_BASE</code> (20px) scaled by the user's <code>fctArcScale</code>
+    setting. The arc peaks at the midpoint of the entry's lifetime and returns to zero,
+    creating a smooth curved path.</p>
 
-    <p>This produces the pattern: left 15px, right 15px, left 35px, right 35px, left 55px,
-    right 55px, then clamped at <code>SPREAD_RANGE</code> (60px). The counter resets
-    automatically when no active entries remain for a given spawn (cleaned up in
-    <code>Update</code>).</p>
+    <p>The motion math in <code>Render()</code> computes the final position each frame:</p>
+
+    <pre><code>float distance = fctFloatDistance * EaseOutQuad(t);
+float dx = cos(dirAngle) * distance;
+float dy = sin(dirAngle) * distance;
+
+float arcT = sin(PI * t);  // peaks at t=0.5, returns to 0 at t=1.0
+float perpX = -sin(dirAngle) * arcAmount * arcT;
+float perpY =  cos(dirAngle) * arcAmount * arcT;
+
+float floatX = dx + perpX;
+float floatY = dy + perpY;</code></pre>
+
+    <p>The directional component (<code>dx</code>, <code>dy</code>) uses OutQuad easing for
+    fast initial movement that decelerates. The arc component is perpendicular to the
+    direction of travel and follows a sine curve that peaks at the midpoint. Together, this
+    produces smooth curved paths that spread hits visually and never float downward (all
+    angles are in the upper semicircle).</p>
+
+    <p>The slot index resets automatically when no active entries remain for a given spawn
+    (cleaned up in <code>Update</code>).</p>
 
     <h2>Bone-Anchored Projection</h2>
 
@@ -222,19 +286,24 @@ counter++;</code></pre>
 
     <h3>World Position</h3>
 
-    <p>The function first attempts to read the head bone position from the spawn's actor
-    skeleton:</p>
+    <p>The function selects a bone anchor based on the spawn type: <code>eBoneChest</code>
+    for player spawns and <code>eBoneLegs</code> for NPC spawns. This split improves
+    visibility on large NPCs (dragons, giants) where chest-anchored text can still float
+    too high above where the player is looking.</p>
 
-    <pre><code>CActorInterface* pActor = pSpawn->mActorClient.pActor;
-if (pActor &amp;&amp; pActor->GetBoneByIndex(eBoneHead))
+    <pre><code>EBones boneIdx = (pSpawn->Type == SPAWN_PLAYER) ? eBoneChest : eBoneLegs;
+
+CActorInterface* pActor = pSpawn->mActorClient.pActor;
+if (pActor &amp;&amp; pActor->GetBoneByIndex(boneIdx))
 {
-    pActor->GetBoneWorldPosition(eBoneHead, reinterpret_cast&lt;CVector3*&gt;(&amp;worldPos), false);
+    pActor->GetBoneWorldPosition(boneIdx, reinterpret_cast&lt;CVector3*&gt;(&amp;worldPos), false);
 }</code></pre>
 
-    <p>This gives the exact 3D position of the mob's head bone in world space, which is the
-    ideal anchor point for floating text (numbers appear right above the mob's head).</p>
+    <p>For player spawns (your character, other players), the chest bone keeps FCT text at a
+    natural reading height. For NPC spawns, the legs bone anchors text lower on the model,
+    which keeps damage numbers visible and near the action even on very large creatures.</p>
 
-    <p>If the actor or head bone is unavailable (mob is too far away, model not loaded, or
+    <p>If the actor or chest bone is unavailable (mob is too far away, model not loaded, or
     certain NPC types), the fallback uses the spawn's raw coordinates offset by avatar height:</p>
 
     <pre><code>worldPos = glm::vec3(pSpawn->Y, pSpawn->X, pSpawn->Z + pSpawn->AvatarHeight);</code></pre>
@@ -306,18 +375,28 @@ float scale = POP_START_SCALE + (1.0f - POP_START_SCALE) * EaseOutQuad(popT);
     <p>The easing function is <code>EaseOutQuad(t) = t * (2.0 - t)</code>. This starts fast
     and decelerates, making the scale-down feel snappy at the start and smooth at the end.</p>
 
-    <h3>Float Up</h3>
+    <h3>Directional Float with Arc</h3>
 
-    <p>Over the full lifetime, the text floats upward by <code>FLOAT_DISTANCE</code> (150
-    pixels) using the same OutQuad easing on the overall progress <code>t</code>:</p>
+    <p>Over the full lifetime, the text travels along its assigned direction angle by
+    <code>fctFloatDistance</code> (default 150 pixels) using the same OutQuad easing on the
+    overall progress <code>t</code>. A perpendicular arc curve adds a smooth bend to the
+    path:</p>
 
-    <pre><code>float floatY = -FLOAT_DISTANCE * EaseOutQuad(t);
-// At t=0: floatY = 0 (at spawn head)
-// At t=0.5: floatY = -112.5px (fast initial rise)
-// At t=1.0: floatY = -150px (slow final drift)</code></pre>
+    <pre><code>float distance = fctFloatDistance * EaseOutQuad(t);
+float dx = cos(dirAngle) * distance;
+float dy = sin(dirAngle) * distance;
 
-    <p>The negative direction is upward in screen coordinates. The easing means the text rises
-    quickly at first and slows as it approaches its final height, which feels natural.</p>
+float arcT = sin(PI * t);
+float perpX = -sin(dirAngle) * arcAmount * arcT;
+float perpY =  cos(dirAngle) * arcAmount * arcT;
+
+float floatX = dx + perpX;
+float floatY = dy + perpY;</code></pre>
+
+    <p>Because all direction angles are in the upper semicircle (-150 to -30 degrees), entries
+    always float upward. The OutQuad easing means entries move quickly at first and decelerate.
+    The arc component peaks at the midpoint of the lifetime (t=0.5) and returns to zero at the
+    end, creating a smooth curved trajectory rather than a straight line.</p>
 
     <h3>Fade Out</h3>
 
@@ -343,8 +422,8 @@ if (t > FADE_START)
             <tr><td><code>POP_DURATION</code></td><td>0.3s</td><td>Duration of the pop-in scale animation</td></tr>
             <tr><td><code>POP_START_SCALE</code></td><td>1.4x</td><td>Initial enlarged scale factor</td></tr>
             <tr><td><code>FADE_START</code></td><td>0.6</td><td>Fraction of lifetime at which fade begins (60%)</td></tr>
-            <tr><td><code>FLOAT_DISTANCE</code></td><td>150px</td><td>Total upward distance text travels</td></tr>
-            <tr><td><code>SPREAD_RANGE</code></td><td>60px</td><td>Maximum horizontal offset for fan spread</td></tr>
+            <tr><td><code>NUM_ANGLE_SLOTS</code></td><td>8</td><td>Number of pre-defined direction angles in the upper semicircle</td></tr>
+            <tr><td><code>ARC_BASE</code></td><td>20px</td><td>Base perpendicular arc curve magnitude before fctArcScale multiplier</td></tr>
         </tbody>
     </table>
 
@@ -402,9 +481,9 @@ engine.fctManager.Render(engine.settings);</code></pre>
 
     <p><code>Update(dt)</code> advances the <code>lifetime</code> of every active entry by
     <code>dt</code> seconds. Entries whose lifetime exceeds <code>maxLifetime</code> are
-    deactivated. The spawn hit counter map is also cleaned: spawns with no remaining active
-    entries have their counter removed, so the fan spread resets for the next burst of hits
-    on that spawn.</p>
+    deactivated. The spawn angle slot map is also cleaned: spawns with no remaining active
+    entries have their slot index removed, so the directional spread resets for the next burst
+    of hits on that spawn.</p>
 
     <p><code>Render(settings)</code> iterates all active entries and for each one:</p>
 
@@ -413,11 +492,13 @@ engine.fctManager.Render(engine.settings);</code></pre>
         <code>ProjectSpawnToScreen</code>. Entries whose spawn is behind the camera or
         whose spawn no longer exists are skipped.</li>
         <li>Computes normalized progress <code>t = lifetime / maxLifetime</code>.</li>
-        <li>Computes pop scale, float-up offset, and alpha fade.</li>
+        <li>Computes pop scale, directional float offset (dx/dy + arc), and alpha fade.</li>
         <li>Computes final font size: <code>fctBaseFontSize * fctFontScale * popScale</code>.</li>
         <li>Measures text size with <code>font->CalcTextSizeA</code> and centers the text
-        horizontally around the projected screen position (offset by <code>xOffset</code>).</li>
-        <li>Draws the drop shadow to <code>ImGui::GetBackgroundDrawList()</code>.</li>
+        horizontally around the projected screen position (offset by directional float).</li>
+        <li>Draws the spell icon (if <code>iconCellID >= 0</code> and icons enabled) to <code>ImGui::GetBackgroundDrawList()</code>.
+        The icon is positioned to the left of the damage number, scaled with text height, and participates in all animations (pop, float, fade).</li>
+        <li>Draws the drop shadow to the same draw list.</li>
         <li>Draws the main text to the same draw list.</li>
     </ol>
 
@@ -481,6 +562,11 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td>BaseFontSize</td><td><code>fctBaseFontSize</code></td><td>float</td><td>24.0</td><td>Base font size in pixels. Range: 12.0 to 48.0.</td></tr>
             <tr><td>FontScale</td><td><code>fctFontScale</code></td><td>float</td><td>1.5</td><td>Multiplier applied on top of BaseFontSize. Range: 0.5 to 3.0.</td></tr>
             <tr><td>ShadowOffset</td><td><code>fctShadowOffset</code></td><td>float</td><td>2.0</td><td>Pixel offset for the drop shadow, scaled by font size ratio. Range: 0.0 to 5.0.</td></tr>
+            <tr><td>Icons</td><td><code>showFCT_Icons</code></td><td>bool</td><td>true</td><td>Toggle spell icons drawn to the left of FCT numbers.</td></tr>
+            <tr><td>IconScale</td><td><code>fctIconScale</code></td><td>float</td><td>1.0</td><td>Scales icon relative to text height. Range: 0.1 to 1.0.</td></tr>
+            <tr><td>FloatDistance</td><td><code>fctFloatDistance</code></td><td>float</td><td>150.0</td><td>How far (in pixels) entries travel along their direction angle. Range: 30 to 300.</td></tr>
+            <tr><td>ArcScale</td><td><code>fctArcScale</code></td><td>float</td><td>1.0</td><td>Multiplier for arc curvature. 0 = straight lines, higher = more curve. Range: 0.0 to 3.0.</td></tr>
+            <tr><td>DistinctMelee</td><td><code>fctDistinctMelee</code></td><td>bool</td><td>true</td><td>When true, each melee verb gets its own color and icon. When false, all melee uses generic "hit" styling.</td></tr>
         </tbody>
     </table>
 
@@ -491,9 +577,9 @@ engine.fctManager.Render(engine.settings);</code></pre>
 
     <ul>
         <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling <code>showFCT</code>.</li>
-        <li><strong>8 per-type checkboxes</strong> in a dynamic-column table (120px per column):
-        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By.</li>
-        <li><strong>4 sliders</strong> with fixed 100px width, all using
+        <li><strong>9 per-type checkboxes</strong> in a dynamic-column table (120px per column):
+        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, Icons.</li>
+        <li><strong>7 sliders</strong> with fixed 100px width, all using
         <code>ImGuiSliderFlags_AlwaysClamp</code>:</li>
     </ul>
 
@@ -504,6 +590,9 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td>Font Scale</td><td>0.5 &ndash; 3.0</td><td>1.5</td><td>%.2f</td></tr>
             <tr><td>Shadow Offset</td><td>0.0 &ndash; 5.0</td><td>2.0</td><td>%.1f</td></tr>
             <tr><td>Lifetime (s)</td><td>1.0 &ndash; 5.0</td><td>2.5</td><td>%.1f</td></tr>
+            <tr><td>Icon Scale</td><td>0.1 &ndash; 1.0</td><td>1.0</td><td>%.2f</td></tr>
+            <tr><td>Float Distance</td><td>30 &ndash; 300</td><td>150.0</td><td>%.0f</td></tr>
+            <tr><td>Arc Scale</td><td>0.0 &ndash; 3.0</td><td>1.0</td><td>%.2f</td></tr>
         </tbody>
     </table>
 
@@ -539,11 +628,186 @@ engine.fctManager.Render(engine.settings);</code></pre>
         floating text to reduce visual clutter.
     </div>
 
+    <h2>FCT Type Info List</h2>
+
+    <p>The static function <code>GetFCTTypeInfoList()</code> returns the authoritative list of
+    all 19 configurable FCT types. Each entry defines a string key (used for color lookup,
+    icon overrides, and INI persistence), a display label, and a default icon cell ID.</p>
+
+    <table>
+        <thead><tr><th>#</th><th>Type Key</th><th>Display Label</th><th>Default Icon</th></tr></thead>
+        <tbody>
+            <tr><td>1</td><td><code>hit</code></td><td>Hit</td><td>49</td></tr>
+            <tr><td>2</td><td><code>crush</code></td><td>Crush</td><td>49</td></tr>
+            <tr><td>3</td><td><code>slash</code></td><td>Slash</td><td>49</td></tr>
+            <tr><td>4</td><td><code>pierce</code></td><td>Pierce</td><td>49</td></tr>
+            <tr><td>5</td><td><code>backstab</code></td><td>Backstab</td><td>49</td></tr>
+            <tr><td>6</td><td><code>bash</code></td><td>Bash</td><td>155</td></tr>
+            <tr><td>7</td><td><code>kick</code></td><td>Kick</td><td>201</td></tr>
+            <tr><td>8</td><td><code>bite</code></td><td>Bite</td><td>49</td></tr>
+            <tr><td>9</td><td><code>non-melee</code></td><td>Non-Melee</td><td>-1</td></tr>
+            <tr><td>10</td><td><code>dot</code></td><td>DoT</td><td>-1</td></tr>
+            <tr><td>11</td><td><code>pet</code></td><td>Pet</td><td>3</td></tr>
+            <tr><td>12</td><td><code>pet-spell</code></td><td>Pet Spell</td><td>55</td></tr>
+            <tr><td>13</td><td><code>crit</code></td><td>Crit</td><td>50</td></tr>
+            <tr><td>14</td><td><code>heal</code></td><td>Heal</td><td>0</td></tr>
+            <tr><td>15</td><td><code>critHeals</code></td><td>Crit Heal</td><td>0</td></tr>
+            <tr><td>16</td><td><code>hit-by</code></td><td>Hit By</td><td>-1</td></tr>
+            <tr><td>17</td><td><code>hit-by-non-melee</code></td><td>Hit By Non-Melee</td><td>-1</td></tr>
+            <tr><td>18</td><td><code>ds</code></td><td>Damage Shield</td><td>-1</td></tr>
+            <tr><td>19</td><td><code>environmental</code></td><td>Environmental</td><td>-1</td></tr>
+        </tbody>
+    </table>
+
+    <p>Types with a default icon of -1 use dynamic icon resolution (spell lookup) or display
+    no icon. The type key string is used consistently across color settings, icon overrides,
+    and INI keys.</p>
+
+    <h2>Distinct Melee Verbs</h2>
+
+    <p>The <code>fctDistinctMelee</code> setting (default: <code>true</code>) controls whether
+    individual melee attack verbs receive their own color and icon in FCT. The affected verbs
+    are: crush, kick, bash, slash, pierce, backstab, hit, and bite.</p>
+
+    <p>When <strong>enabled</strong> (true), each verb is treated as its own FCT type with a
+    dedicated color from <code>damageColors</code> and a dedicated icon (or icon override).
+    This allows fine-grained visual distinction between different melee attacks in the floating
+    text.</p>
+
+    <p>When <strong>disabled</strong> (false), all melee verbs collapse to the generic
+    <code>"hit"</code> type. They all use the <code>"hit"</code> color and the
+    <code>"hit"</code> icon, regardless of the actual attack verb. This reduces visual
+    complexity for players who do not need verb-level detail.</p>
+
+    <p>INI persistence: <code>[FCT] DistinctMelee=1</code> (or 0 to disable).</p>
+
+    <h2>Custom Icon Overrides</h2>
+
+    <p>Users can override the default icon for any FCT type through a visual icon picker in the
+    config UI. Overrides are stored per-type and persist to the INI file.</p>
+
+    <h3>FCTIconOverride Struct</h3>
+
+    <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td><code>iconID</code></td><td>int</td><td>-1</td><td>Override icon cell ID. -1 means no override (use default).</td></tr>
+            <tr><td><code>useItem</code></td><td>bool</td><td>false</td><td>If true, icon is rendered from the item icon texture instead of spell icons.</td></tr>
+        </tbody>
+    </table>
+
+    <p>The <code>fctIconOverrides</code> map in <code>MyDPSSettings</code> is keyed by the FCT
+    type string (matching the keys in the FCT Type Info List above). Only types with an active
+    override (iconID != -1) have entries in this map.</p>
+
+    <h3>Icon ID Ranges</h3>
+
+    <table>
+        <thead><tr><th>Range</th><th>Source Texture</th><th>Cell Calculation</th></tr></thead>
+        <tbody>
+            <tr><td>0 &ndash; 499</td><td><code>A_SpellGems</code></td><td>cell = iconID</td></tr>
+            <tr><td>500+</td><td><code>A_DragItem</code></td><td>cell = iconID - 500</td></tr>
+        </tbody>
+    </table>
+
+    <p>During render, if an entry's icon ID is 500 or greater, it is drawn using
+    <code>m_pItemIconAnim</code> with cell index <code>id - 500</code>. Otherwise it uses
+    <code>m_pSpellIconAnim</code> directly. The FCTManager loads both
+    <code>A_SpellGems</code> and <code>A_DragItem</code> animations at initialization.</p>
+
+    <h3>Icon Picker Window</h3>
+
+    <p>The icon picker is a separate ImGui window that opens when clicking an icon button in
+    the FCT type table. It provides a visual grid for selecting an icon.</p>
+
+    <ul>
+        <li><strong>Tabs:</strong> Spell and Item tabs switch between A_SpellGems (IDs 0-499)
+        and A_DragItem (IDs 500+) icon sets.</li>
+        <li><strong>Pagination:</strong> 500 icons per page with forward/back navigation.</li>
+        <li><strong>Scale slider:</strong> Adjusts icon display size in the picker from 0.5x
+        to 3.0x for easier browsing of small icons.</li>
+        <li><strong>Selection:</strong> Clicking an icon selects it as the override and
+        auto-closes the picker window.</li>
+        <li><strong>Cancel:</strong> Closing the picker window manually (X button) cancels
+        without changing the override.</li>
+        <li><strong>Reassignment:</strong> If the picker is already open and the user clicks a
+        different type's icon button, the picker reassigns to target that new type without
+        closing/reopening.</li>
+        <li><strong>Reset:</strong> An "X" button next to each type's icon in the config table
+        clears the override back to the default icon (sets iconID to -1).</li>
+    </ul>
+
+    <h3>INI Persistence</h3>
+
+    <p>Icon overrides are saved in the <code>[FCTIcons]</code> INI section. Each key is the
+    FCT type string and the value is the integer icon ID:</p>
+
+    <pre><code>[FCTIcons]
+hit=49
+crush=512
+backstab=155
+heal=0</code></pre>
+
+    <p>IDs in the 500+ range indicate item icons (the <code>useItem</code> flag is derived
+    from the ID at load time). Types not present in this section use their default icon from
+    the FCT Type Info List.</p>
+
+    <h2>Unified FCT Type Table (Config UI)</h2>
+
+    <p>The FCT tab in the config window now presents a unified table for all configurable FCT
+    types. Each row in the table represents one type from the FCT Type Info List.</p>
+
+    <h3>Table Columns</h3>
+
+    <table>
+        <thead><tr><th>Column</th><th>Content</th></tr></thead>
+        <tbody>
+            <tr><td><strong>Type</strong></td><td>Display label for the FCT type.</td></tr>
+            <tr><td><strong>Color</strong></td><td>Color edit button showing and allowing changes to that type's color in <code>damageColors</code>.</td></tr>
+            <tr><td><strong>Icon</strong></td><td>Icon preview button. Clicking opens the icon picker for that type. Shows the current icon (default or override).</td></tr>
+            <tr><td><strong>Reset</strong></td><td>"X" button to clear the icon override back to default.</td></tr>
+        </tbody>
+    </table>
+
+    <p>With this unified table, the separate Colors tab was reduced to only contain UI-only
+    colors that do not correspond to FCT types: <code>dmg-target</code>,
+    <code>heal-target</code>, <code>dps</code>, <code>duration</code>, <code>avg</code>,
+    and <code>total</code>. All FCT-related colors are now edited inline in the FCT type
+    table.</p>
+
+    <h2>A_DragItem Support</h2>
+
+    <p>The FCTManager now loads two texture animations at initialization:</p>
+
+    <ul>
+        <li><code>m_pSpellIconAnim</code> &mdash; loaded from <code>A_SpellGems</code>,
+        provides spell icon cells (IDs 0&ndash;499).</li>
+        <li><code>m_pItemIconAnim</code> &mdash; loaded from <code>A_DragItem</code>,
+        provides item icon cells (IDs 500+, rendered as cell = id - 500).</li>
+    </ul>
+
+    <p>During render, the icon draw logic checks the resolved icon ID:</p>
+
+    <pre><code>if (iconID >= 500)
+{
+    m_pItemIconAnim->SetCurCell(iconID - 500);
+    DrawTextureAnimation(m_pItemIconAnim, ...);
+}
+else
+{
+    m_pSpellIconAnim->SetCurCell(iconID);
+    DrawTextureAnimation(m_pSpellIconAnim, ...);
+}</code></pre>
+
+    <p>Both animations are found via <code>pSidlMgr->FindAnimation()</code> during the
+    FCTManager's first render call (lazy initialization). If either animation is not found,
+    icons are silently disabled for that category.</p>
+
     <h2>Zone Transitions and Reset</h2>
 
     <p>When the player zones (<code>OnBeginZone</code>), the engine calls
-    <code>fctManager.Clear()</code>, which deactivates all entries, clears the spawn hit
-    counter map, and resets the ring buffer slot pointer. This is necessary because all
+    <code>fctManager.Clear()</code>, which deactivates all entries, clears the spawn angle
+    slot map, and resets the ring buffer slot pointer. This is necessary because all
     spawn IDs from the old zone become invalid in the new zone.</p>
 
     <p><code>ResetAll()</code> (triggered by <code>/mydps reset</code>) also calls

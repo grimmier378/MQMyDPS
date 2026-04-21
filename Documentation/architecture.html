@@ -412,6 +412,10 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         <li><code>fctFontScale</code> (default 1.5): multiplied with base font size for final size.</li>
         <li><code>fctShadowOffset</code> (default 2.0): pixel offset for the drop shadow, scaled proportionally to font size.</li>
         <li><code>fctLifetime</code> (default 2.5s): how long each FCT entry floats before fading out.</li>
+        <li><code>fctFloatDistance</code> (default 150.0): how far (in pixels) each FCT entry floats upward during its lifetime.</li>
+        <li><code>fctArcScale</code> (default 60.0): controls the width of the arc-based directional spread for rapid hits on the same target.</li>
+        <li><code>fctShowIcons</code> (default true): when enabled, a damage-type icon is rendered alongside each FCT number.</li>
+        <li><code>fctIconScale</code> (default 1.0): scale multiplier for FCT icons.</li>
     </ul>
 
     <h2>DamageType Enum and Color Keys</h2>
@@ -475,14 +479,17 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
 
     <p>The FCT system renders damage and heal numbers anchored to the 3D position of the
     target spawn, projected onto the 2D screen. Numbers pop in enlarged (1.4x), float
-    upward (150px), and fade out after 60% of their lifetime. The system uses a 64-entry
-    ring buffer managed by <code>FCTManager</code>, with bone-anchored 3D-to-screen
-    projection via <code>eqlib/graphics</code> headers.</p>
+    upward (configurable via <code>fctFloatDistance</code>, default 150px), and fade out
+    after 60% of their lifetime. The system uses a 64-entry ring buffer managed by
+    <code>FCTManager</code>, with bone-anchored 3D-to-screen projection via
+    <code>eqlib/graphics</code> headers.</p>
 
     <p>Key aspects: a 5-stage filter chain in <code>AddEntry</code> (master toggle,
     spawn ID, miss, damage, per-type toggle), pet color override to "pet" key,
-    alternating fan spread for rapid hits, head bone projection with avatar-height
-    fallback, and drop shadow rendering to ImGui's background draw list.</p>
+    arc-based directional spread for rapid hits (controlled by <code>fctArcScale</code>
+    using <code>m_spawnAngleSlot</code> to assign each entry a unique angle), chest bone
+    projection with avatar-height fallback, optional damage-type icons, and drop shadow
+    rendering to ImGui's background draw list.</p>
 
     <p>For comprehensive details on the FCT architecture, animation formulas, projection
     math, entry creation, type filtering, and configuration, see the dedicated
