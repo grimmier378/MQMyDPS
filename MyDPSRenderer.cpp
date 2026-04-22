@@ -224,29 +224,33 @@ void MyDPSRenderer::RenderCurrentBattle(MyDPSEngine& engine)
 		ImGui::TextColored(C("duration"), "Status: Combat Ending...");
 	ImGui::Separator();
 
-	if (ImGui::BeginTable("BattleStats", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
+	struct StatEntry { const char* label; std::string value; ImVec4 color; };
+	StatEntry stats[] = {
+		{ "DPS",        fmt::format("{:.1f}", battleDPS),         C("dps") },
+		{ "Duration",   fmt::format("{:.0f} s", battleDur),       C("duration") },
+		{ "Total",      FormatNumber(engine.battleDamage),        C("total") },
+		{ "Avg",        fmt::format("{:.1f}", avgDmg),            C("avg") },
+		{ "Hits",       fmt::format("{}", engine.battleHitCount), C("total") },
+		{ "Crits",      FormatNumber(engine.battleCritDamage),    C("crit") },
+		{ "DoTs",       FormatNumber(engine.battleDotDamage),     C("dot") },
+		{ "Pet",        FormatNumber(engine.battlePetDamage),     C("pet") },
+		{ "Non-Melee",  FormatNumber(engine.battleNonMeleeDmg),   C("non-melee") },
+		{ "Heals",      FormatNumber(engine.battleDirectHeals),   C("heal") },
+		{ "Crit Heals", FormatNumber(engine.battleCritHeals),     C("critHeals") },
+	};
+
+	int sizeX = static_cast<int>(ImGui::GetWindowWidth());
+	int col = std::max(1, sizeX / 150);
+	if (ImGui::BeginTable("BattleStats", col))
 	{
-		ImGui::TableSetupColumn("Stat", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-		ImGui::TableSetupColumn("Value");
-
-		auto Row = [](const char* label, const std::string& val, const ImVec4& color) {
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn(); ImGui::Text("%s", label);
-			ImGui::TableNextColumn(); ImGui::TextColored(color, "%s", val.c_str());
-		};
-
-		Row("DPS",         fmt::format("{:.1f}", battleDPS),              C("dps"));
-		Row("Duration",    fmt::format("{:.0f}s", battleDur),             C("duration"));
-		Row("Total Damage",FormatNumber(engine.battleDamage),             C("total"));
-		Row("Avg Damage",  fmt::format("{:.1f}", avgDmg),                C("avg"));
-		Row("Hits",        fmt::format("{}", engine.battleHitCount),      C("total"));
-		Row("Crit Damage", FormatNumber(engine.battleCritDamage),         C("crit"));
-		Row("DoT Damage",  FormatNumber(engine.battleDotDamage),          C("dot"));
-		Row("Pet Damage",  FormatNumber(engine.battlePetDamage),          C("pet"));
-		Row("Non-Melee",   FormatNumber(engine.battleNonMeleeDmg),        C("non-melee"));
-		Row("Heals",       FormatNumber(engine.battleDirectHeals),        C("heal"));
-		Row("Crit Heals",  FormatNumber(engine.battleCritHeals),          C("critHeals"));
-
+		ImGui::TableNextRow();
+		for (const auto& s : stats)
+		{
+			ImGui::TableNextColumn();
+			ImGui::Text("%s:", s.label);
+			ImGui::SameLine();
+			ImGui::TextColored(s.color, "%s", s.value.c_str());
+		}
 		ImGui::EndTable();
 	}
 
@@ -361,7 +365,7 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("heal"),      "%s", FormatNumber(b.directHeals).c_str());
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("critHeals"), "%s", FormatNumber(b.critHeals).c_str());
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("total"),     "%s", FormatNumber(b.totalDamage).c_str());
-			ImGui::TableNextColumn(); ImGui::TextColored(Clr("heal"),      "%s", FormatNumber(b.directHeals + b.critHeals).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(Clr("heal"),      "%s", FormatNumber(b.directHeals).c_str());
 
 			if (expanded)
 			{

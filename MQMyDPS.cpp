@@ -446,62 +446,75 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 		int spawnID = ResolveSpawnID(record);
 		record.targetSpawnID = spawnID;
 
-		sessionDamage += record.damage;
-		sessionHitCount++;
-		battleDamage += record.damage;
-		battleHitCount++;
-
 		if (record.type == DamageType::Crit)
+		{
 			battleCritDamage += record.damage;
-		if (record.type == DamageType::DoT)
-			battleDotDamage += record.damage;
-		if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
-			battlePetDamage += record.damage;
-		if (record.type == DamageType::NonMelee)
-			battleNonMeleeDmg += record.damage;
 
-		auto& target = currentTargets[spawnID];
-		if (target.name.empty())
-		{
-			target.spawnID = spawnID;
-			target.name = record.targetName;
-			target.firstHit = record.timestamp;
+			if (spawnID > 0)
+			{
+				auto& target = currentTargets[spawnID];
+				target.critDamage += record.damage;
+				target.lastHit = record.timestamp;
+
+				auto& sessionTarget = cachedSessionTargets[spawnID];
+				sessionTarget.critDamage += record.damage;
+			}
+
+			aggregateDirty = true;
 		}
-		target.totalDamage += record.damage;
-		target.hitCount++;
-		target.lastHit = record.timestamp;
-
-		if (record.type == DamageType::Crit)
-			target.critDamage += record.damage;
-		if (record.type == DamageType::DoT)
-			target.dotDamage += record.damage;
-		if (record.type == DamageType::DamageShield)
-			target.dsDamage += record.damage;
-		if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
-			target.petDamage += record.damage;
-		if (record.type == DamageType::NonMelee)
-			target.nonMeleeDamage += record.damage;
-
-		auto& sessionTarget = cachedSessionTargets[spawnID];
-		if (sessionTarget.name.empty())
+		else
 		{
-			sessionTarget.spawnID = spawnID;
-			sessionTarget.name = record.targetName;
-		}
-		sessionTarget.totalDamage += record.damage;
-		sessionTarget.hitCount++;
-		if (record.type == DamageType::Crit)
-			sessionTarget.critDamage += record.damage;
-		if (record.type == DamageType::DoT)
-			sessionTarget.dotDamage += record.damage;
-		if (record.type == DamageType::DamageShield)
-			sessionTarget.dsDamage += record.damage;
-		if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
-			sessionTarget.petDamage += record.damage;
-		if (record.type == DamageType::NonMelee)
-			sessionTarget.nonMeleeDamage += record.damage;
+			sessionDamage += record.damage;
+			sessionHitCount++;
+			battleDamage += record.damage;
+			battleHitCount++;
 
-		aggregateDirty = true;
+			if (record.type == DamageType::DoT)
+				battleDotDamage += record.damage;
+			if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+				battlePetDamage += record.damage;
+			if (record.type == DamageType::NonMelee)
+				battleNonMeleeDmg += record.damage;
+
+			auto& target = currentTargets[spawnID];
+			if (target.name.empty())
+			{
+				target.spawnID = spawnID;
+				target.name = record.targetName;
+				target.firstHit = record.timestamp;
+			}
+			target.totalDamage += record.damage;
+			target.hitCount++;
+			target.lastHit = record.timestamp;
+
+			if (record.type == DamageType::DoT)
+				target.dotDamage += record.damage;
+			if (record.type == DamageType::DamageShield)
+				target.dsDamage += record.damage;
+			if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+				target.petDamage += record.damage;
+			if (record.type == DamageType::NonMelee)
+				target.nonMeleeDamage += record.damage;
+
+			auto& sessionTarget = cachedSessionTargets[spawnID];
+			if (sessionTarget.name.empty())
+			{
+				sessionTarget.spawnID = spawnID;
+				sessionTarget.name = record.targetName;
+			}
+			sessionTarget.totalDamage += record.damage;
+			sessionTarget.hitCount++;
+			if (record.type == DamageType::DoT)
+				sessionTarget.dotDamage += record.damage;
+			if (record.type == DamageType::DamageShield)
+				sessionTarget.dsDamage += record.damage;
+			if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+				sessionTarget.petDamage += record.damage;
+			if (record.type == DamageType::NonMelee)
+				sessionTarget.nonMeleeDamage += record.damage;
+
+			aggregateDirty = true;
+		}
 	}
 
 	if (record.type == DamageType::DirectHeal && record.damage > 0)

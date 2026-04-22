@@ -89,7 +89,7 @@ struct HealTargetData
 	int64_t     critHeals   = 0;
 	int         healCount   = 0;
 
-	int64_t GetTotalHeals() const { return directHeals + critHeals; }
+	int64_t GetTotalHeals() const { return directHeals; }
 };
 
 struct BattleData
