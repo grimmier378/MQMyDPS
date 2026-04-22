@@ -506,6 +506,7 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 
 	if (record.type == DamageType::DirectHeal && record.damage > 0)
 	{
+		m_lastHealTarget = record.targetName;
 		if (inCombat)
 		{
 			battleDirectHeals += record.damage;
@@ -526,9 +527,17 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 
 	if (record.type == DamageType::CritHeal && record.damage > 0)
 	{
+		if (record.targetName.empty() && !m_lastHealTarget.empty())
+			record.targetName = m_lastHealTarget;
+
 		if (inCombat)
 		{
 			battleCritHeals += record.damage;
+
+			auto& ht = currentHealTargets[record.targetName];
+			if (ht.name.empty())
+				ht.name = record.targetName;
+			ht.critHeals += record.damage;
 
 			auto& sht = cachedSessionHeals[record.targetName];
 			if (sht.name.empty())

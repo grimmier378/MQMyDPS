@@ -512,14 +512,24 @@ void MyDPSRenderer::RenderGraphs(MyDPSEngine& engine)
 		return;
 	}
 
-	ImGui::Checkbox("Line Graph", &m_showLineGraph);
+	ImGui::Checkbox("DPS Graph", &m_showDpsGraph);
+	ImGui::SameLine();
+	ImGui::Checkbox("Damage Breakdown", &m_showDmgGraph);
 	ImGui::SameLine();
 	ImGui::Checkbox("Bar Chart", &m_showBarChart);
 	ImGui::SameLine();
 	ImGui::Checkbox("Pie Chart", &m_showPieChart);
 
-	if (m_showLineGraph || m_showBarChart)
-		RenderLineGraph(engine);
+	RebuildGraphCache(engine);
+
+	if (m_showDpsGraph)
+		RenderDPSGraph(engine);
+
+	if (m_showDmgGraph)
+		RenderDamageGraph(engine);
+
+	if (m_showBarChart)
+		RenderBarChart(engine);
 
 	if (m_showPieChart)
 		RenderPieChart(engine);
@@ -528,156 +538,213 @@ void MyDPSRenderer::RenderGraphs(MyDPSEngine& engine)
 static constexpr int GRAPH_WINDOW   = 50;
 static constexpr int GRAPH_MAX_BACK = 250;
 
-void MyDPSRenderer::RenderLineGraph(MyDPSEngine& engine)
+void MyDPSRenderer::RebuildGraphCache(MyDPSEngine& engine)
 {
 	int totalBattles = static_cast<int>(engine.battleHistory.size());
-	if (totalBattles == 0)
-	{
-		ImGui::TextDisabled("No completed battles to graph.");
+	if (totalBattles == m_cachedBattleCount)
 		return;
+
+	m_cachedBattleCount = totalBattles;
+	int cacheCount = std::min(totalBattles, GRAPH_MAX_BACK);
+	int cacheStart = totalBattles - cacheCount;
+	m_gTotalCached = cacheCount;
+
+	auto resize = [&](std::vector<float>& v) { v.resize(cacheCount); };
+	resize(m_gNums); resize(m_gDps); resize(m_gMelee); resize(m_gDD);
+	resize(m_gDots); resize(m_gPets); resize(m_gCrits); resize(m_gHeals);
+	resize(m_gCritHeals);
+
+	for (int i = 0; i < cacheCount; i++)
+	{
+		const auto& b = engine.battleHistory[cacheStart + i];
+		m_gNums[i]      = static_cast<float>(b.battleNumber);
+		m_gDps[i]       = b.dps;
+		m_gCrits[i]     = static_cast<float>(b.critDamage);
+		m_gDots[i]      = static_cast<float>(b.dotDamage);
+		m_gPets[i]      = static_cast<float>(b.petDamage);
+		m_gDD[i]        = static_cast<float>(b.nonMeleeDamage);
+		m_gHeals[i]     = static_cast<float>(b.directHeals);
+		m_gCritHeals[i] = static_cast<float>(b.critHeals);
+		m_gMelee[i]     = static_cast<float>(b.totalDamage) - m_gCrits[i] - m_gDots[i] - m_gDD[i] - m_gPets[i];
+		if (m_gMelee[i] < 0) m_gMelee[i] = 0;
 	}
+}
 
-	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
+void MyDPSRenderer::RenderScrollBar(const char* id, MyDPSRenderer::GraphScrollState& scroll, int totalBattles, int maxBack)
+{
 	int maxOffset = std::max(0, maxBack - GRAPH_WINDOW);
-	m_graphOffset = std::clamp(m_graphOffset, 0, maxOffset);
+	int prev = scroll.offset;
 
-	int startIdx = totalBattles - maxBack + m_graphOffset;
-	int count = std::min(GRAPH_WINDOW, maxBack - m_graphOffset);
-	if (startIdx < 0) startIdx = 0;
-	if (startIdx + count > totalBattles) count = totalBattles - startIdx;
+	if (scroll.autoScroll)
+		scroll.offset = maxOffset;
+
+	scroll.offset = std::clamp(scroll.offset, 0, maxOffset);
 
 	if (maxBack > GRAPH_WINDOW)
 	{
+		int startIdx = totalBattles - maxBack + scroll.offset;
+		int count = std::min(GRAPH_WINDOW, maxBack - scroll.offset);
+
 		ImGui::SetNextItemWidth(-1);
-		ImGui::SliderInt("##GraphScroll", &m_graphOffset, 0, maxOffset,
+		ImGui::SliderInt(id, &scroll.offset, 0, maxOffset,
 			fmt::format("Battles {}-{} of {}", startIdx + 1, startIdx + count, totalBattles).c_str());
+
+		if (scroll.offset != prev)
+			scroll.autoScroll = (scroll.offset >= maxOffset);
 	}
+}
+
+void MyDPSRenderer::RenderDPSGraph(MyDPSEngine& engine)
+{
+	int totalBattles = static_cast<int>(engine.battleHistory.size());
+	if (totalBattles == 0)
+		return;
+
+	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
+	RenderScrollBar("##DPSScroll", m_dpsScroll, totalBattles, maxBack);
+
+	int startIdx = m_dpsScroll.offset;
+	int count = std::min(GRAPH_WINDOW, m_gTotalCached - m_dpsScroll.offset);
+	if (count <= 0)
+		return;
+
+	float xMin = m_gNums[startIdx] - 0.5f;
+	float xMax = m_gNums[startIdx + count - 1] + 1.5f;
 
 	auto C = [&](const char* key) -> ImVec4 {
 		auto it = engine.settings.damageColors.find(key);
 		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
 	};
 
-	if (m_cachedBattleCount != totalBattles || m_cachedGraphOffset != m_graphOffset)
+	if (ImPlot::BeginPlot("DPS by Battle", ImVec2(-1, 300)))
 	{
-		m_cachedBattleCount = totalBattles;
-		m_cachedGraphOffset = m_graphOffset;
-		m_gStartIdx = startIdx;
-		m_gCount = count;
+		ImPlot::SetupAxes("Battle #", "DPS");
+		ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
+		ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
 
-		auto resize = [&](std::vector<float>& v) { v.resize(count); };
-		resize(m_gNums); resize(m_gDps); resize(m_gMelee); resize(m_gDD);
-		resize(m_gDots); resize(m_gPets); resize(m_gCrits); resize(m_gHeals);
-		resize(m_gCritHeals);
+		ImPlot::SetNextLineStyle(C("dps"), 2.0f);
+		ImPlot::PlotLine("DPS", m_gNums.data() + startIdx, m_gDps.data() + startIdx, count);
 
-		for (int i = 0; i < count; i++)
-		{
-			const auto& b = engine.battleHistory[startIdx + i];
-			m_gNums[i]      = static_cast<float>(b.battleNumber);
-			m_gDps[i]       = b.dps;
-			m_gCrits[i]     = static_cast<float>(b.critDamage);
-			m_gDots[i]      = static_cast<float>(b.dotDamage);
-			m_gPets[i]      = static_cast<float>(b.petDamage);
-			m_gDD[i]        = static_cast<float>(b.nonMeleeDamage);
-			m_gHeals[i]     = static_cast<float>(b.directHeals);
-			m_gCritHeals[i] = static_cast<float>(b.critHeals);
-			m_gMelee[i]     = static_cast<float>(b.totalDamage) - m_gCrits[i] - m_gDots[i] - m_gDD[i] - m_gPets[i];
-			if (m_gMelee[i] < 0) m_gMelee[i] = 0;
-		}
+		ImPlot::EndPlot();
 	}
+}
 
-	float xMin = m_gCount > 0 ? m_gNums[0] - 0.5f : 0;
-	float xMax = m_gCount > 0 ? m_gNums[m_gCount - 1] + 1.5f : 1;
+void MyDPSRenderer::RenderDamageGraph(MyDPSEngine& engine)
+{
+	int totalBattles = static_cast<int>(engine.battleHistory.size());
+	if (totalBattles == 0)
+		return;
 
-	if (m_showLineGraph)
+	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
+	RenderScrollBar("##DmgScroll", m_dmgScroll, totalBattles, maxBack);
+
+	int startIdx = m_dmgScroll.offset;
+	int count = std::min(GRAPH_WINDOW, m_gTotalCached - m_dmgScroll.offset);
+	if (count <= 0)
+		return;
+
+	float xMin = m_gNums[startIdx] - 0.5f;
+	float xMax = m_gNums[startIdx + count - 1] + 1.5f;
+
+	auto C = [&](const char* key) -> ImVec4 {
+		auto it = engine.settings.damageColors.find(key);
+		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+	};
+
+	if (ImPlot::BeginPlot("Damage Breakdown by Battle", ImVec2(-1, 350)))
 	{
-		if (ImPlot::BeginPlot("DPS by Battle", ImVec2(-1, 300)))
-		{
-			ImPlot::SetupAxes("Battle #", "DPS");
-			ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
-			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
+		ImPlot::SetupAxes("Battle #", "Damage");
+		ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
+		ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
 
-			ImPlot::SetNextLineStyle(C("dps"), 2.0f);
-			ImPlot::PlotLine("DPS", m_gNums.data(), m_gDps.data(), m_gCount);
+		ImPlot::SetupAxis(ImAxis_Y2, "Crits", ImPlotAxisFlags_AuxDefault);
+		ImPlot::SetupAxisLimitsConstraints(ImAxis_Y2, 0, HUGE_VAL);
 
-			ImPlot::EndPlot();
-		}
+		ImPlot::SetupAxis(ImAxis_Y3, "Heals", ImPlotAxisFlags_AuxDefault);
+		ImPlot::SetupAxisLimitsConstraints(ImAxis_Y3, 0, HUGE_VAL);
 
-		if (ImPlot::BeginPlot("Damage Breakdown by Battle", ImVec2(-1, 350)))
-		{
-			ImPlot::SetupAxes("Battle #", "Damage");
-			ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
-			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
+		ImPlot::SetupLegend(ImPlotLocation_NorthEast);
 
-			ImPlot::SetupAxis(ImAxis_Y2, "Crits", ImPlotAxisFlags_AuxDefault);
-			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y2, 0, HUGE_VAL);
+		ImPlot::SetAxes(ImAxis_X1, ImAxis_Y1);
+		ImPlot::SetNextLineStyle(C("hit"), 2.0f);
+		ImPlot::PlotLine("Melee", m_gNums.data() + startIdx, m_gMelee.data() + startIdx, count);
+		ImPlot::SetNextLineStyle(C("non-melee"), 1.5f);
+		ImPlot::PlotLine("DD", m_gNums.data() + startIdx, m_gDD.data() + startIdx, count);
+		ImPlot::SetNextLineStyle(C("dot"), 1.5f);
+		ImPlot::PlotLine("DoT", m_gNums.data() + startIdx, m_gDots.data() + startIdx, count);
+		ImPlot::SetNextLineStyle(C("pet"), 1.5f);
+		ImPlot::PlotLine("Pet", m_gNums.data() + startIdx, m_gPets.data() + startIdx, count);
 
-			ImPlot::SetupAxis(ImAxis_Y3, "Heals", ImPlotAxisFlags_AuxDefault);
-			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y3, 0, HUGE_VAL);
+		ImPlot::SetAxes(ImAxis_X1, ImAxis_Y2);
+		ImPlot::SetNextLineStyle(C("crit"), 1.5f);
+		ImPlot::PlotLine("Crit", m_gNums.data() + startIdx, m_gCrits.data() + startIdx, count);
 
-			ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+		ImPlot::SetAxes(ImAxis_X1, ImAxis_Y3);
+		ImPlot::SetNextLineStyle(C("heal"), 1.5f);
+		ImPlot::PlotLine("Heals", m_gNums.data() + startIdx, m_gHeals.data() + startIdx, count);
+		ImPlot::SetNextLineStyle(C("critHeals"), 1.5f);
+		ImPlot::PlotLine("Crit Heals", m_gNums.data() + startIdx, m_gCritHeals.data() + startIdx, count);
 
-			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y1);
-			ImPlot::SetNextLineStyle(C("hit"), 2.0f);
-			ImPlot::PlotLine("Melee", m_gNums.data(), m_gMelee.data(), m_gCount);
-			ImPlot::SetNextLineStyle(C("non-melee"), 1.5f);
-			ImPlot::PlotLine("DD", m_gNums.data(), m_gDD.data(), m_gCount);
-			ImPlot::SetNextLineStyle(C("dot"), 1.5f);
-			ImPlot::PlotLine("DoT", m_gNums.data(), m_gDots.data(), m_gCount);
-			ImPlot::SetNextLineStyle(C("pet"), 1.5f);
-			ImPlot::PlotLine("Pet", m_gNums.data(), m_gPets.data(), m_gCount);
-
-			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y2);
-			ImPlot::SetNextLineStyle(C("crit"), 1.5f);
-			ImPlot::PlotLine("Crit", m_gNums.data(), m_gCrits.data(), m_gCount);
-
-			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y3);
-			ImPlot::SetNextLineStyle(C("heal"), 1.5f);
-			ImPlot::PlotLine("Heals", m_gNums.data(), m_gHeals.data(), m_gCount);
-			ImPlot::SetNextLineStyle(C("critHeals"), 1.5f);
-			ImPlot::PlotLine("Crit Heals", m_gNums.data(), m_gCritHeals.data(), m_gCount);
-
-			ImPlot::EndPlot();
-		}
+		ImPlot::EndPlot();
 	}
+}
 
-	if (m_showBarChart)
+void MyDPSRenderer::RenderBarChart(MyDPSEngine& engine)
+{
+	int totalBattles = static_cast<int>(engine.battleHistory.size());
+	if (totalBattles == 0)
+		return;
+
+	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
+	RenderScrollBar("##BarScroll", m_barScroll, totalBattles, maxBack);
+
+	int startIdx = m_barScroll.offset;
+	int count = std::min(GRAPH_WINDOW, m_gTotalCached - m_barScroll.offset);
+	if (count <= 0)
+		return;
+
+	float xMin = m_gNums[startIdx] - 0.5f;
+	float xMax = m_gNums[startIdx + count - 1] + 1.5f;
+
+	auto C = [&](const char* key) -> ImVec4 {
+		auto it = engine.settings.damageColors.find(key);
+		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+	};
+
+	if (ImPlot::BeginPlot("Damage Breakdown Bars", ImVec2(-1, 300)))
 	{
-		if (ImPlot::BeginPlot("Damage Breakdown Bars", ImVec2(-1, 300)))
+		ImPlot::SetupAxes("Battle #", "Damage");
+		ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
+		ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
+		ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+
+		constexpr int numSeries = 7;
+		constexpr float groupWidth = 0.8f;
+		constexpr float barWidth = groupWidth / numSeries;
+		float startOff = -groupWidth * 0.5f + barWidth * 0.5f;
+
+		struct BarSeries { const char* label; const char* colorKey; std::vector<float>* data; };
+		BarSeries series[] = {
+			{ "Melee",      "hit",       &m_gMelee },
+			{ "DD",         "non-melee", &m_gDD },
+			{ "DoT",        "dot",       &m_gDots },
+			{ "Pet",        "pet",       &m_gPets },
+			{ "Crit",       "crit",      &m_gCrits },
+			{ "Heals",      "heal",      &m_gHeals },
+			{ "Crit Heals", "critHeals", &m_gCritHeals },
+		};
+
+		for (int s = 0; s < numSeries; s++)
 		{
-			ImPlot::SetupAxes("Battle #", "Damage");
-			ImPlot::SetupAxisLimits(ImAxis_X1, xMin, xMax, ImPlotCond_Always);
-			ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
-			ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+			float shifted[GRAPH_WINDOW];
+			for (int i = 0; i < count; i++)
+				shifted[i] = m_gNums[startIdx + i] + startOff + s * barWidth;
 
-			constexpr int numSeries = 7;
-			constexpr float groupWidth = 0.8f;
-			constexpr float barWidth = groupWidth / numSeries;
-			float startOff = -groupWidth * 0.5f + barWidth * 0.5f;
-
-			struct BarSeries { const char* label; const char* colorKey; std::vector<float>* data; };
-			BarSeries series[] = {
-				{ "Melee",      "hit",       &m_gMelee },
-				{ "DD",         "non-melee", &m_gDD },
-				{ "DoT",        "dot",       &m_gDots },
-				{ "Pet",        "pet",       &m_gPets },
-				{ "Crit",       "crit",      &m_gCrits },
-				{ "Heals",      "heal",      &m_gHeals },
-				{ "Crit Heals", "critHeals", &m_gCritHeals },
-			};
-
-			for (int s = 0; s < numSeries; s++)
-			{
-				std::vector<float> shifted(m_gCount);
-				for (int i = 0; i < m_gCount; i++)
-					shifted[i] = m_gNums[i] + startOff + s * barWidth;
-
-				ImPlot::SetNextFillStyle(C(series[s].colorKey));
-				ImPlot::PlotBars(series[s].label, shifted.data(), series[s].data->data(), m_gCount, barWidth * 0.9f);
-			}
-
-			ImPlot::EndPlot();
+			ImPlot::SetNextFillStyle(C(series[s].colorKey));
+			ImPlot::PlotBars(series[s].label, shifted, series[s].data->data() + startIdx, count, barWidth * 0.9f);
 		}
+
+		ImPlot::EndPlot();
 	}
 }
 

@@ -94,6 +94,7 @@ private:
 	uint32_t m_lastCastTargetID  = 0;
 	int      m_syntheticIDCounter = 0;
 	bool     m_myChatLoaded      = false;
+	std::string m_lastHealTarget;
 
 	std::string GetSettingsPath() const;
 };
