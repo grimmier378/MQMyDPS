@@ -601,11 +601,24 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 	{
 		bool isIncoming = (record.type == DamageType::HitBy
 			|| record.type == DamageType::HitByNonMelee
-			|| record.type == DamageType::MissedMe
-			|| record.type == DamageType::DirectHeal
-			|| record.type == DamageType::CritHeal);
+			|| record.type == DamageType::MissedMe);
 		if (isIncoming && pLocalPlayer)
 			record.targetSpawnID = pLocalPlayer->SpawnID;
+
+		bool isHeal = (record.type == DamageType::DirectHeal
+			|| record.type == DamageType::CritHeal);
+		if (isHeal && pLocalPlayer)
+		{
+			if (!record.targetName.empty() && record.targetName != charName)
+			{
+				if (PlayerClient* pTarget = GetSpawnByName(record.targetName.c_str()))
+					record.targetSpawnID = pTarget->SpawnID;
+			}
+			else
+			{
+				record.targetSpawnID = pLocalPlayer->SpawnID;
+			}
+		}
 	}
 
 	record.spellIconID = ResolveSpellIconID(record);
