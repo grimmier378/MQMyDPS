@@ -26,7 +26,7 @@
 <main class="content">
     <h1>ImGui Rendering</h1>
 
-    <p><em>Last Updated: 2026-04-22</em></p>
+    <p><em>Last Updated: 2026-04-23</em></p>
 
     <h2>What Is Immediate-Mode GUI?</h2>
 
@@ -268,6 +268,17 @@ ImGui::PopFont();</code></pre>
         <code>ScrollY</code> flag enables vertical scrolling when many battles are recorded.
     </div>
 
+    <div class="screenshot-grid">
+        <figure>
+            <img src="media/cleric.png" alt="Cleric battle history" class="screenshot">
+            <figcaption>Cleric</figcaption>
+        </figure>
+        <figure>
+            <img src="media/shadowknight.png" alt="Shadowknight battle history" class="screenshot">
+            <figcaption>Shadowknight</figcaption>
+        </figure>
+    </div>
+
     <p>Each row represents one completed battle. The Battle# column contains a
     <code>TreeNode</code> whose label reads
     <code>"Battle (N) NPC (N) Healed (N)"</code>, showing the battle number, the
@@ -363,6 +374,8 @@ ImGui::PopFont();</code></pre>
 
     <p>These toggle flags are members of <code>MyDPSRenderer</code> (not the engine), so
     they are per-session and not persisted to the INI file.</p>
+
+    <img src="media/graphs.png" alt="Graphs tab" class="screenshot">
 
     <p>The Graphs tab content is wrapped in a child window using
     <code>ImGuiChildFlags_Borders</code> and

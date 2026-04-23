@@ -15,6 +15,26 @@ A native C++ MacroQuest plugin for EverQuest that provides real-time DPS trackin
 - TLO API for macro/Lua access (`${MyDPS}`)
 - Per-character INI settings persistence
 
+## Screenshots
+
+### Battle History
+
+| Cleric | Shadowknight |
+|--------|-------------|
+| ![Cleric battle history](https://raw.githubusercontent.com/grimmier378/MQMyDPS/main/Documentation/media/cleric.png) | ![Shadowknight battle history](https://raw.githubusercontent.com/grimmier378/MQMyDPS/main/Documentation/media/shadowknight.png) |
+
+### Graphs
+
+![Graphs tab](https://raw.githubusercontent.com/grimmier378/MQMyDPS/main/Documentation/media/graphs.png)
+
+### FCT Configuration
+
+![FCT settings](https://raw.githubusercontent.com/grimmier378/MQMyDPS/main/Documentation/media/settings.png)
+
+### Floating Combat Text
+
+<video src="https://raw.githubusercontent.com/grimmier378/MQMyDPS/main/Documentation/media/fct_demo.mp4" controls width="600"></video>
+
 ## Getting Started
 
 ```

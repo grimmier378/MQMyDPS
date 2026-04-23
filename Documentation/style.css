@@ -238,6 +238,49 @@ li {
     border-radius: 0 4px 4px 0;
 }
 
+/* Screenshots & media */
+.screenshot {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.screenshot-caption {
+    font-size: 0.9rem;
+    color: #666;
+    font-style: italic;
+    margin-top: -0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.screenshot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.screenshot-grid figure {
+    margin: 0;
+}
+
+.screenshot-grid .screenshot {
+    margin-bottom: 0.5rem;
+}
+
+.screenshot-grid figcaption {
+    font-size: 0.9rem;
+    color: #666;
+    font-style: italic;
+}
+
+video.screenshot {
+    display: block;
+}
+
 /* Quick links grid */
 .link-grid {
     display: grid;

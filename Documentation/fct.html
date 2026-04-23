@@ -26,7 +26,7 @@
 <main class="content">
     <h1>Floating Combat Text (FCT)</h1>
 
-    <p><em>Last Updated: 2026-04-22</em></p>
+    <p><em>Last Updated: 2026-04-23</em></p>
 
     <div class="note">
         <strong>April 2026 update:</strong> The alternating fan spread system (xOffset) has been
@@ -51,6 +51,10 @@
         <li>Open the config window (<code>/mydps config</code>) and check the
         <strong>Enable FCT</strong> checkbox in the "FCT" tab.</li>
     </ul>
+
+    <video src="media/fct_demo.mp4" controls class="screenshot" style="max-width: 600px;">
+        Your browser does not support the video tag.
+    </video>
 
     <p>When enabled, every damage or heal event that passes the filter chain produces a floating
     number anchored to the target spawn. Outgoing damage shows plain numbers, heals show
@@ -573,6 +577,8 @@ engine.fctManager.Render(engine.settings);</code></pre>
     </table>
 
     <h3>Config UI</h3>
+
+    <img src="media/settings.png" alt="FCT configuration tab" class="screenshot">
 
     <p>The FCT section of the config window (<code>/mydps config</code>) is collapsed by
     default (no <code>ImGuiTreeNodeFlags_DefaultOpen</code> flag). It contains:</p>

@@ -51,7 +51,11 @@ bool MyDPSParser::TryParseMelee(std::string_view line, DamageRecord& out)
 	if (spacePos == std::string_view::npos)
 		return false;
 
-	out.attackVerb = std::string(verbAndTarget.substr(0, spacePos));
+	auto verb = verbAndTarget.substr(0, spacePos);
+	if (verb == "have")
+		return false;
+
+	out.attackVerb = std::string(verb);
 	out.targetName = std::string(verbAndTarget.substr(spacePos + 1));
 	out.damage = ExtractNumber(line, forPos + 5, ptsPos);
 	out.type = DamageType::Melee;
