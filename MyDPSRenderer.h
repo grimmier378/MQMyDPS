@@ -18,6 +18,7 @@ public:
 	void RenderConfigWindow(MyDPSEngine& engine);
 	void RenderFloatingText(MyDPSEngine& engine);
 	void RenderIconPicker(MyDPSEngine& engine);
+	void RenderConfig(MyDPSEngine& engine);
 
 private:
 	struct GraphScrollState
@@ -37,7 +38,6 @@ private:
 	void RebuildGraphCache(MyDPSEngine& engine);
 	void RenderPieChart(MyDPSEngine& engine);
 	void RenderHealing(MyDPSEngine& engine);
-	void RenderConfig(MyDPSEngine& engine);
 	void EnsurePickerAnimations();
 
 	bool m_showDpsGraph = true;

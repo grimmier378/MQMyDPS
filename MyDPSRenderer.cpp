@@ -977,8 +977,10 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					{ "Heals",      &s.showFCT_Heals },
 					{ "Crit Heals", &s.showFCT_CritHeals },
 					{ "Hit By",     &s.showFCT_HitBy },
+					{ "DS",         &s.showFCT_DS },
 					{ "Icons",      &s.showFCT_Icons },
 					{ "Distinct Melee", &s.fctDistinctMelee },
+					{ "Spell Icons", &s.fctUseSpellIcons },
 				};
 
 				int fctCol = std::max(1, sizeX / 130);
@@ -1002,7 +1004,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
 					ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40.0f);
 					ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 36.0f);
-					ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 24.0f);
+					ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 60.0f);
 					ImGui::TableHeadersRow();
 
 					for (const auto& info : GetFCTTypeInfoList())
@@ -1024,8 +1026,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 						ImGui::TableNextColumn();
 						{
 							auto overIt = s.fctIconOverrides.find(info.key);
-							int iconID = (overIt != s.fctIconOverrides.end() && overIt->second.iconID >= 0)
-								? overIt->second.iconID : info.defaultIcon;
+							int iconID = (overIt != s.fctIconOverrides.end()) ? overIt->second.iconID : info.defaultIcon;
 
 							ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 							bool drewIcon = false;
@@ -1056,7 +1057,14 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 
 						ImGui::TableNextColumn();
 						if (ImGui::SmallButton("X"))
+							s.fctIconOverrides[info.key] = { FCT_ICON_NONE, false };
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Remove icon");
+						ImGui::SameLine();
+						if (ImGui::SmallButton("D"))
 							s.fctIconOverrides.erase(info.key);
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Reset to default");
 
 						ImGui::PopID();
 					}

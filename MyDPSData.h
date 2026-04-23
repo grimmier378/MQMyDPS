@@ -110,6 +110,8 @@ struct BattleData
 	std::unordered_map<std::string, HealTargetData> healTargets;
 };
 
+constexpr int FCT_ICON_NONE = -2;
+
 struct FCTIconOverride
 {
 	int  iconID  = -1;
@@ -179,8 +181,10 @@ struct MyDPSSettings
 	bool  showFCT_Heals     = true;
 	bool  showFCT_CritHeals = true;
 	bool  showFCT_HitBy     = true;
+	bool  showFCT_DS        = true;
 	bool  showFCT_Icons     = true;
 	bool  fctDistinctMelee  = true;
+	bool  fctUseSpellIcons  = false;
 	float fctIconScale      = 1.0f;
 	float fctFloatDistance   = 150.0f;
 	float fctArcScale       = 1.0f;

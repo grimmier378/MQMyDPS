@@ -26,7 +26,7 @@
 <main class="content">
     <h1>ImGui Rendering</h1>
 
-    <p><em>Last Updated: 2026-04-20</em></p>
+    <p><em>Last Updated: 2026-04-22</em></p>
 
     <h2>What Is Immediate-Mode GUI?</h2>
 
@@ -202,8 +202,11 @@ ImGui::PopFont();</code></pre>
     <h2>Tab: Current Battle</h2>
 
     <p>If no battle is active and no battle damage has been recorded, a hint text is shown.
-    Otherwise, the tab renders a 2-column statistics table using the color lookup lambda.
-    Stat values are individually colored by their data type. The rows are:</p>
+    Otherwise, the tab renders an adaptive-column layout using a <code>StatEntry</code>
+    struct array. Each stat is a compact "Label: Value" pair with the value colored by its
+    data type. The number of columns adapts to the window width
+    (<code>std::max(1, sizeX / 150)</code>), flowing stats into multiple columns on wide
+    windows and wrapping to fewer on narrow ones. The stats are:</p>
 
     <table>
         <thead><tr><th>Row label</th><th>Source data</th><th>Color key</th><th>Format</th></tr></thead>
@@ -252,7 +255,7 @@ ImGui::PopFont();</code></pre>
             <tr><td>Heals</td><td>"heal"</td><td>Battle direct heals total</td><td>"-"</td><td>Player's directHeals</td></tr>
             <tr><td>Crit Heals</td><td>"critHeals"</td><td>Battle crit heals total</td><td>"-"</td><td>Player's critHeals</td></tr>
             <tr><td>Total</td><td>"total"</td><td>Total damage this battle</td><td>Per-target total damage</td><td>"-"</td></tr>
-            <tr><td>Total Heals</td><td>"heal"</td><td>directHeals + critHeals</td><td>"-"</td><td>Player's GetTotalHeals()</td></tr>
+            <tr><td>Total Heals</td><td>"heal"</td><td>directHeals (total heals)</td><td>"-"</td><td>Player's GetTotalHeals()</td></tr>
         </tbody>
     </table>
 
@@ -352,7 +355,8 @@ ImGui::PopFont();</code></pre>
     on or off. All three can be shown simultaneously, or any combination:</p>
 
     <ul>
-        <li><strong>Line Graph</strong> (<code>m_showLineGraph</code>, default: on)</li>
+        <li><strong>DPS Graph</strong> (<code>m_showDpsGraph</code>, default: on)</li>
+        <li><strong>Damage Breakdown</strong> (<code>m_showDmgGraph</code>, default: on)</li>
         <li><strong>Bar Chart</strong> (<code>m_showBarChart</code>, default: on)</li>
         <li><strong>Pie Chart</strong> (<code>m_showPieChart</code>, default: off)</li>
     </ul>
@@ -376,11 +380,15 @@ ImGui::PopFont();</code></pre>
     <pre><code>static constexpr int GRAPH_WINDOW   = 50;   // battles visible at once
 static constexpr int GRAPH_MAX_BACK = 250;  // max history depth</code></pre>
 
-    <p>The graphs display up to 50 battles at a time. If you have more than 50 completed
-    battles, a full-width slider appears above the charts. Dragging it lets you scroll
-    back through up to 250 battles of history. The slider label shows which battles are
-    currently visible (for example, "Battles 51-100 of 150"). The scroll offset is stored
-    in <code>m_graphOffset</code> on the renderer.</p>
+    <p>Each graph (DPS, Damage Breakdown, Bar Chart) has its own independent scroll bar
+    and its own <code>GraphScrollState</code> struct (<code>m_dpsScroll</code>,
+    <code>m_dmgScroll</code>, <code>m_barScroll</code>). Each scroll state tracks an
+    <code>offset</code> and an <code>autoScroll</code> flag. When autoscroll is on
+    (default), the graph snaps to the most recent battles. If the user drags the scroll
+    bar away from the end, autoscroll disengages. Scrolling back to the end re-engages
+    autoscroll. Graph data vectors are cached as renderer members and rebuilt only when
+    the total battle count changes (not when offset changes), covering the full
+    <code>GRAPH_MAX_BACK</code> range.</p>
 
     <h3>Line Graph: DPS by Battle</h3>
 
@@ -625,12 +633,13 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
         <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling
         <code>settings.showFCT</code>.</li>
         <li><strong>Type filter toggles</strong> &mdash; A checkbox grid (columns computed
-        dynamically at <code>sizeX / 130</code>) with 10 individual type filter checkboxes:
-        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, Icons, and Distinct Melee.
-        Each toggle controls visibility of that FCT type (e.g. <code>showFCT_Melee</code>,
-        <code>showFCT_DD</code>, etc.). The "Icons" toggle controls whether icons are
-        rendered alongside FCT text. "Distinct Melee" controls whether individual melee
-        verbs appear as separate rows in the type table below.</li>
+        dynamically at <code>sizeX / 130</code>) with 12 individual checkboxes:
+        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, DS, Icons, Distinct Melee,
+        and Spell Icons. Each toggle controls visibility of that FCT type. "DS" controls
+        damage shield proc visibility. "Icons" controls whether icons are rendered alongside
+        FCT text. "Distinct Melee" controls whether individual melee verbs appear as separate
+        rows in the type table below. "Spell Icons" enables actual spell icon lookup for
+        spell-based damage types.</li>
     </ul>
 
     <p>Below the master toggle, a unified type table is rendered with 4 columns:</p>
@@ -641,7 +650,7 @@ int col = std::max(1, sizeX / 165);  // For Display tab</code></pre>
             <tr><td>Type</td><td>The FCT type name (e.g. Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, and all melee verb colors formerly in the Colors tab)</td></tr>
             <tr><td>Color</td><td>A <code>ColorEdit4</code> swatch for that type's color (from <code>settings.damageColors</code>). Uses <code>ImGuiColorEditFlags_NoInputs</code>.</td></tr>
             <tr><td>Icon</td><td>A clickable icon button showing the current icon for that type. Clicking opens the Icon Picker window for that type.</td></tr>
-            <tr><td>Reset</td><td>A button to reset that type's color and icon back to defaults.</td></tr>
+            <tr><td>Reset</td><td>"X" button to remove the icon entirely (<code>FCT_ICON_NONE</code>). "D" button to reset to the type's default icon.</td></tr>
         </tbody>
     </table>
 

@@ -14,6 +14,7 @@ MyDPSEngine* g_dpsEngine = nullptr;
 static MyDPSRenderer s_renderer;
 
 static void MyDPSCommand(PlayerClient*, const char* szLine);
+static void DrawMyDPS_MQSettingsPanel();
 
 static std::string FormatNumber(int64_t value)
 {
@@ -29,12 +30,14 @@ PLUGIN_API void InitializePlugin()
 	g_dpsEngine = new MyDPSEngine();
 	g_dpsEngine->Initialize();
 	AddCommand("/mydps", MyDPSCommand);
+	AddSettingsPanel("plugins/MyDPS", DrawMyDPS_MQSettingsPanel);
 	RegisterMyDPSTLO();
 }
 
 PLUGIN_API void ShutdownPlugin()
 {
 	UnregisterMyDPSTLO();
+	RemoveSettingsPanel("plugins/MyDPS");
 	RemoveCommand("/mydps");
 	g_dpsEngine->Shutdown();
 	delete g_dpsEngine;
@@ -102,6 +105,14 @@ PLUGIN_API void OnRemoveSpawn(PSPAWNINFO pSpawn)
 {
 	if (g_dpsEngine && pSpawn)
 		g_dpsEngine->RemoveActiveDoTs(pSpawn->SpawnID);
+}
+
+static void DrawMyDPS_MQSettingsPanel()
+{
+	if (!g_dpsEngine)
+		return;
+
+	s_renderer.RenderConfig(*g_dpsEngine);
 }
 
 static void MyDPSCommand(PlayerClient*, const char* szLine)
@@ -191,7 +202,25 @@ static void MyDPSCommand(PlayerClient*, const char* szLine)
 		return;
 	}
 
-	WriteChatf("\at[MQMyDPS]\ax Commands: start, stop, reset, report, show, hide, spam, lock, fct, config");
+	if (ci_equals(arg, "help"))
+	{
+		WriteChatf("\at[MQMyDPS]\ax --- Command Help ---");
+		WriteChatf("  \ay/mydps\ax           - Toggle main window");
+		WriteChatf("  \ay/mydps show\ax      - Show main window");
+		WriteChatf("  \ay/mydps hide\ax      - Hide main window");
+		WriteChatf("  \ay/mydps start\ax     - Start DPS tracking");
+		WriteChatf("  \ay/mydps stop\ax      - Stop DPS tracking");
+		WriteChatf("  \ay/mydps reset\ax     - Reset all data");
+		WriteChatf("  \ay/mydps report\ax    - Print session DPS to chat");
+		WriteChatf("  \ay/mydps config\ax    - Toggle config window");
+		WriteChatf("  \ay/mydps spam\ax      - Toggle combat output window");
+		WriteChatf("  \ay/mydps lock\ax      - Toggle combat output click-through");
+		WriteChatf("  \ay/mydps fct\ax       - Toggle floating combat text");
+		WriteChatf("  \ay/mydps help\ax      - Show this help");
+		return;
+	}
+
+	WriteChatf("\at[MQMyDPS]\ax Unknown command '\ar%s\ax'. Use \ay/mydps help\ax for a list of commands.", arg);
 }
 
 void MyDPSEngine::Initialize()
@@ -265,8 +294,10 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.showFCT_Heals     = GetPrivateProfileBool("FCT", "Heals", true, path);
 	settings.showFCT_CritHeals = GetPrivateProfileBool("FCT", "CritHeals", true, path);
 	settings.showFCT_HitBy     = GetPrivateProfileBool("FCT", "HitBy", true, path);
+	settings.showFCT_DS        = GetPrivateProfileBool("FCT", "DS", true, path);
 	settings.showFCT_Icons     = GetPrivateProfileBool("FCT", "Icons", true, path);
 	settings.fctDistinctMelee  = GetPrivateProfileBool("FCT", "DistinctMelee", true, path);
+	settings.fctUseSpellIcons  = GetPrivateProfileBool("FCT", "UseSpellIcons", false, path);
 	GetPrivateProfileString("FCT", "IconScale", "1.0", buf, sizeof(buf), path);
 	settings.fctIconScale = static_cast<float>(atof(buf));
 	GetPrivateProfileString("FCT", "FloatDistance", "150.0", buf, sizeof(buf), path);
@@ -287,7 +318,7 @@ void MyDPSEngine::LoadCharacterSettings()
 	{
 		GetPrivateProfileString("FCTIcons", info.key, "-1", buf, sizeof(buf), path);
 		int id = atoi(buf);
-		if (id >= 0)
+		if (id >= 0 || id == FCT_ICON_NONE)
 			settings.fctIconOverrides[info.key] = { id, id >= 500 };
 	}
 
@@ -346,8 +377,10 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileBool("FCT", "Heals", settings.showFCT_Heals, path);
 	WritePrivateProfileBool("FCT", "CritHeals", settings.showFCT_CritHeals, path);
 	WritePrivateProfileBool("FCT", "HitBy", settings.showFCT_HitBy, path);
+	WritePrivateProfileBool("FCT", "DS", settings.showFCT_DS, path);
 	WritePrivateProfileBool("FCT", "Icons", settings.showFCT_Icons, path);
 	WritePrivateProfileBool("FCT", "DistinctMelee", settings.fctDistinctMelee, path);
+	WritePrivateProfileBool("FCT", "UseSpellIcons", settings.fctUseSpellIcons, path);
 	WritePrivateProfileString("FCT", "IconScale", floatStr(settings.fctIconScale), path);
 	WritePrivateProfileString("FCT", "FloatDistance", floatStr(settings.fctFloatDistance), path);
 	WritePrivateProfileString("FCT", "ArcScale", floatStr(settings.fctArcScale), path);
@@ -356,8 +389,12 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileString("FCT", "FontScale", floatStr(settings.fctFontScale), path);
 	WritePrivateProfileString("FCT", "ShadowOffset", floatStr(settings.fctShadowOffset), path);
 
-	for (const auto& [key, override] : settings.fctIconOverrides)
-		WritePrivateProfileString("FCTIcons", key.c_str(), std::to_string(override.iconID).c_str(), path);
+	for (const auto& info : GetFCTTypeInfoList())
+	{
+		auto it = settings.fctIconOverrides.find(info.key);
+		int id = (it != settings.fctIconOverrides.end()) ? it->second.iconID : -1;
+		WritePrivateProfileString("FCTIcons", info.key, std::to_string(id).c_str(), path);
+	}
 
 	for (const auto& [key, color] : settings.damageColors)
 		WritePrivateProfileColor("Colors", key.c_str(), MQColor(color), path);
@@ -890,13 +927,23 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 		overrideKey = DamageTypeToColorKey(record.type);
 
 	auto overIt = settings.fctIconOverrides.find(overrideKey);
-	if (overIt != settings.fctIconOverrides.end() && overIt->second.iconID >= 0)
-		return overIt->second.iconID;
+	if (overIt != settings.fctIconOverrides.end())
+	{
+		if (overIt->second.iconID == FCT_ICON_NONE)
+			return -1;
+		if (overIt->second.iconID >= 0)
+			return overIt->second.iconID;
+	}
 
 	switch (record.type)
 	{
 	case DamageType::DirectHeal:
 	case DamageType::CritHeal:
+		if (settings.fctUseSpellIcons && !record.spellName.empty())
+		{
+			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+				return pSpell->SpellIcon;
+		}
 		return 0;
 
 	case DamageType::Melee:
@@ -910,18 +957,15 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 		return 3;
 
 	case DamageType::Crit:
-	{
-		if (!record.spellName.empty())
+		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
 				return pSpell->SpellIcon;
 		}
 		return 50;
-	}
 
 	case DamageType::DoT:
-	{
-		if (!record.spellName.empty())
+		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
 				return pSpell->SpellIcon;
@@ -933,22 +977,19 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 			}
 		}
 		return -1;
-	}
 
 	case DamageType::PetNonMelee:
 		return 55;
 
 	case DamageType::NonMelee:
-	{
-		if (!record.spellName.empty())
+		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
 				return pSpell->SpellIcon;
 		}
-		if (m_lastCastSpellIcon >= 0)
+		if (settings.fctUseSpellIcons && m_lastCastSpellIcon >= 0)
 			return m_lastCastSpellIcon;
 		return -1;
-	}
 
 	default:
 		return -1;

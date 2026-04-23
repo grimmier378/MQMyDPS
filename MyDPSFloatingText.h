@@ -109,6 +109,7 @@ inline bool FCTManager::IsTypeEnabled(DamageType type, const MyDPSSettings& sett
 	case DamageType::CritHeal:       return settings.showFCT_CritHeals;
 	case DamageType::HitBy:
 	case DamageType::HitByNonMelee:  return settings.showFCT_HitBy;
+	case DamageType::DamageShield:   return settings.showFCT_DS;
 	default:                         return false;
 	}
 }

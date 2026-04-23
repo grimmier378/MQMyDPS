@@ -49,14 +49,16 @@
                 <td>Creates the global <code>MyDPSEngine</code> on the heap, calls
                 <code>Initialize()</code> (creates the parser, seeds default colors, sets
                 session start time), registers the <code>/mydps</code> command, registers
-                the <code>${MyDPS}</code> TLO.</td>
+                the settings panel at <code>"plugins/MyDPS"</code> in the MacroQuest
+                Settings window, and registers the <code>${MyDPS}</code> TLO.</td>
             </tr>
             <tr>
                 <td><code>ShutdownPlugin</code></td>
                 <td>Once, when the plugin is unloaded or EQ exits.</td>
-                <td>Unregisters TLO and command (in that order &mdash; TLO first because
-                macros might reference it), calls <code>Shutdown()</code> (saves settings,
-                destroys parser), deletes engine, nulls the pointer.</td>
+                <td>Unregisters TLO, settings panel, and command (in that order &mdash;
+                TLO first because macros might reference it), calls
+                <code>Shutdown()</code> (saves settings, destroys parser), deletes engine,
+                nulls the pointer.</td>
             </tr>
             <tr>
                 <td><code>SetGameState</code></td>

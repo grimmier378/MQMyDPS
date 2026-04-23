@@ -328,8 +328,10 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         </tbody>
     </table>
 
-    <p><code>GetTotalHeals()</code> returns <code>directHeals + critHeals</code>. This is
-    the value used for sorting in the Healing tab and for the pie chart.</p>
+    <p><code>GetTotalHeals()</code> returns <code>directHeals</code>. The direct heal
+    amount already includes the full heal value before the crit notification arrives, so
+    adding <code>critHeals</code> would double-count. This value is used for sorting in
+    the Healing tab and for the pie chart.</p>
 
     <h3>TargetDamageData</h3>
 

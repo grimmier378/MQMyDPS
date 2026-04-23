@@ -26,7 +26,7 @@
 <main class="content">
     <h1>Floating Combat Text (FCT)</h1>
 
-    <p><em>Last Updated: 2026-04-20</em></p>
+    <p><em>Last Updated: 2026-04-22</em></p>
 
     <div class="note">
         <strong>April 2026 update:</strong> The alternating fan spread system (xOffset) has been
@@ -227,8 +227,8 @@ fctManager.Render(settings)
             <tr><td>PetMelee</td><td>3</td><td></td></tr>
             <tr><td>PetNonMelee</td><td>55</td><td></td></tr>
             <tr><td>Crit (melee)</td><td>50</td><td></td></tr>
-            <tr><td>DirectHeal / CritHeal</td><td>0</td><td></td></tr>
-            <tr><td>NonMelee / DoT / Crit (spell)</td><td>dynamic</td><td>Looked up via <code>GetSpellByName()</code> or <code>GetSpellByID()</code> using <code>pSpell->SpellIcon</code>.</td></tr>
+            <tr><td>DirectHeal / CritHeal</td><td>0 (or dynamic)</td><td>Default icon 0. When <code>fctUseSpellIcons</code> is true, looks up the actual heal spell icon via <code>GetSpellByName()</code> first.</td></tr>
+            <tr><td>NonMelee / DoT / Crit (spell)</td><td>dynamic</td><td>When <code>fctUseSpellIcons</code> is true, looked up via <code>GetSpellByName()</code> using <code>pSpell->SpellIcon</code>. When false, returns type defaults (-1 for NonMelee/DoT, 50 for melee Crit).</td></tr>
             <tr><td>HitBy / HitByNonMelee</td><td>-1</td><td>No icon drawn for incoming damage.</td></tr>
         </tbody>
     </table>
@@ -558,6 +558,7 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td>Heals</td><td><code>showFCT_Heals</code></td><td>bool</td><td>true</td><td>Show FCT for direct heals.</td></tr>
             <tr><td>CritHeals</td><td><code>showFCT_CritHeals</code></td><td>bool</td><td>true</td><td>Show FCT for critical heals.</td></tr>
             <tr><td>HitBy</td><td><code>showFCT_HitBy</code></td><td>bool</td><td>true</td><td>Show FCT for incoming damage (HitBy and HitByNonMelee).</td></tr>
+            <tr><td>DS</td><td><code>showFCT_DS</code></td><td>bool</td><td>true</td><td>Show FCT for damage shield procs (DamageShield type).</td></tr>
             <tr><td>Lifetime</td><td><code>fctLifetime</code></td><td>float</td><td>2.5</td><td>Seconds each FCT entry remains visible before fading out. Range: 1.0 to 5.0.</td></tr>
             <tr><td>BaseFontSize</td><td><code>fctBaseFontSize</code></td><td>float</td><td>24.0</td><td>Base font size in pixels. Range: 12.0 to 48.0.</td></tr>
             <tr><td>FontScale</td><td><code>fctFontScale</code></td><td>float</td><td>1.5</td><td>Multiplier applied on top of BaseFontSize. Range: 0.5 to 3.0.</td></tr>
@@ -567,6 +568,7 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td>FloatDistance</td><td><code>fctFloatDistance</code></td><td>float</td><td>150.0</td><td>How far (in pixels) entries travel along their direction angle. Range: 30 to 300.</td></tr>
             <tr><td>ArcScale</td><td><code>fctArcScale</code></td><td>float</td><td>1.0</td><td>Multiplier for arc curvature. 0 = straight lines, higher = more curve. Range: 0.0 to 3.0.</td></tr>
             <tr><td>DistinctMelee</td><td><code>fctDistinctMelee</code></td><td>bool</td><td>true</td><td>When true, each melee verb gets its own color and icon. When false, all melee uses generic "hit" styling.</td></tr>
+            <tr><td>UseSpellIcons</td><td><code>fctUseSpellIcons</code></td><td>bool</td><td>false</td><td>When true, spell-based types (NonMelee, DoT, Crit, DirectHeal, CritHeal) resolve the actual spell icon via <code>GetSpellByName()</code> before falling back to defaults. When false, only hardcoded defaults are used.</td></tr>
         </tbody>
     </table>
 
@@ -577,8 +579,9 @@ engine.fctManager.Render(engine.settings);</code></pre>
 
     <ul>
         <li><strong>Enable FCT</strong> &mdash; Master checkbox toggling <code>showFCT</code>.</li>
-        <li><strong>9 per-type checkboxes</strong> in a dynamic-column table (120px per column):
-        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, Icons.</li>
+        <li><strong>12 per-type checkboxes</strong> in a dynamic-column table (130px per column):
+        Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By, DS, Icons, Distinct Melee, and
+        Spell Icons.</li>
         <li><strong>7 sliders</strong> with fixed 100px width, all using
         <code>ImGuiSliderFlags_AlwaysClamp</code>:</li>
     </ul>
@@ -617,13 +620,13 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td><code>HitByNonMelee</code></td><td><code>showFCT_HitBy</code></td><td></td></tr>
             <tr><td><code>Miss</code></td><td>(none)</td><td>Always filtered out &mdash; returns false. Also blocked by the isMiss check in AddEntry.</td></tr>
             <tr><td><code>MissedMe</code></td><td>(none)</td><td>Always filtered out &mdash; returns false. The pLocalPlayer assignment still happens, but IsTypeEnabled rejects it.</td></tr>
-            <tr><td><code>DamageShield</code></td><td>(none)</td><td>Always filtered out &mdash; returns false.</td></tr>
+            <tr><td><code>DamageShield</code></td><td><code>showFCT_DS</code></td><td>Damage shield proc damage.</td></tr>
         </tbody>
     </table>
 
     <div class="note">
-        <strong>Miss, MissedMe, and DamageShield</strong> have no FCT toggle and always return
-        false from <code>IsTypeEnabled</code>. Miss events are also blocked earlier by the
+        <strong>Miss and MissedMe</strong> have no FCT toggle and always return false from
+        <code>IsTypeEnabled</code>. Miss events are also blocked earlier by the
         <code>isMiss</code> check in AddEntry. These types are intentionally excluded from
         floating text to reduce visual clutter.
     </div>
@@ -692,7 +695,7 @@ engine.fctManager.Render(engine.settings);</code></pre>
     <table>
         <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-            <tr><td><code>iconID</code></td><td>int</td><td>-1</td><td>Override icon cell ID. -1 means no override (use default).</td></tr>
+            <tr><td><code>iconID</code></td><td>int</td><td>-1</td><td>Override icon cell ID. -1 means no override (use default). -2 (<code>FCT_ICON_NONE</code>) means explicitly no icon (user removed it). Positive values are icon cell IDs.</td></tr>
             <tr><td><code>useItem</code></td><td>bool</td><td>false</td><td>If true, icon is rendered from the item icon texture instead of spell icons.</td></tr>
         </tbody>
     </table>
@@ -734,8 +737,12 @@ engine.fctManager.Render(engine.settings);</code></pre>
         <li><strong>Reassignment:</strong> If the picker is already open and the user clicks a
         different type's icon button, the picker reassigns to target that new type without
         closing/reopening.</li>
-        <li><strong>Reset:</strong> An "X" button next to each type's icon in the config table
-        clears the override back to the default icon (sets iconID to -1).</li>
+        <li><strong>Remove:</strong> An "X" button next to each type's icon in the config table
+        removes the icon entirely (sets <code>FCT_ICON_NONE = -2</code>, persisted to INI).
+        The type will display no icon in FCT.</li>
+        <li><strong>Default:</strong> A "D" button next to the "X" button resets the override
+        back to the type's default icon (erases the override from the map). The type will use
+        its default icon from the FCT Type Info List.</li>
     </ul>
 
     <h3>INI Persistence</h3>

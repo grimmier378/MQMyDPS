@@ -26,7 +26,7 @@
 <main class="content">
     <h1>Commands &amp; TLO</h1>
 
-    <p><em>Last Updated: 2026-04-20</em></p>
+    <p><em>Last Updated: 2026-04-22</em></p>
 
     <h2>Slash Commands</h2>
 
@@ -35,8 +35,8 @@
     argument with <code>GetArg()</code> and matches it case-insensitively using
     <code>ci_equals()</code>. If no argument is given, the main window is toggled.</p>
 
-    <p>The help text printed for any unrecognized argument lists all available subcommands:</p>
-    <pre><code>[MQMyDPS] Commands: start, stop, reset, report, show, hide, spam, lock, fct, config</code></pre>
+    <p>The <code>/mydps help</code> subcommand prints formatted help listing all available
+    commands. Unrecognized arguments print an error directing the user to <code>/mydps help</code>.</p>
 
     <table>
         <thead><tr><th>Command</th><th>Action</th><th>Notes</th></tr></thead>
@@ -84,6 +84,12 @@
                 <code>Enabled</code>.</td>
             </tr>
             <tr>
+                <td><code>/mydps help</code></td>
+                <td>Show command help</td>
+                <td>Prints a formatted list of all available subcommands with descriptions
+                to the chat window.</td>
+            </tr>
+            <tr>
                 <td><code>/mydps start</code></td>
                 <td>Start damage tracking</td>
                 <td>Sets <code>tracking = true</code>. If no session damage has been
@@ -128,6 +134,16 @@
     temporarily disable click-through, drag the window to the desired position, then
     use <code>/mydps lock</code> again to re-enable it. The setting is saved to the INI
     file when settings are saved.</p>
+
+    <h3>MacroQuest Settings Panel</h3>
+
+    <p>MQMyDPS registers a settings panel at <code>"plugins/MyDPS"</code> in the MacroQuest
+    Settings window (accessible from the MQ system menu). The panel renders the same config
+    UI as the standalone config window (<code>/mydps config</code>), using the shared
+    <code>RenderConfig()</code> method. This follows the same pattern used by MQ2AutoSize and
+    MQ2PluginManager. The panel is registered in <code>InitializePlugin()</code> via
+    <code>AddSettingsPanel()</code> and removed in <code>ShutdownPlugin()</code> via
+    <code>RemoveSettingsPanel()</code>.</p>
 
     <h2>Top Level Object: ${MyDPS}</h2>
 
@@ -325,13 +341,16 @@
             <tr><td>FCT Heals</td><td>Heals ([FCT] section)</td><td>showFCT_Heals</td><td>true</td><td>Show floating text for direct heals</td></tr>
             <tr><td>FCT Crit Heals</td><td>CritHeals ([FCT] section)</td><td>showFCT_CritHeals</td><td>true</td><td>Show floating text for critical heals</td></tr>
             <tr><td>FCT Hit By</td><td>HitBy ([FCT] section)</td><td>showFCT_HitBy</td><td>true</td><td>Show floating text for incoming damage</td></tr>
+            <tr><td>FCT DS</td><td>DS ([FCT] section)</td><td>showFCT_DS</td><td>true</td><td>Show floating text for damage shield procs</td></tr>
+            <tr><td>FCT Distinct Melee</td><td>DistinctMelee ([FCT] section)</td><td>fctDistinctMelee</td><td>true</td><td>When true, individual melee verbs get distinct FCT colors and icons</td></tr>
+            <tr><td>FCT Spell Icons</td><td>UseSpellIcons ([FCT] section)</td><td>fctUseSpellIcons</td><td>false</td><td>When true, spell-based damage types (DD, DoT, Crit, Heals, Crit Heals) use the actual spell icon in FCT instead of generic defaults</td></tr>
             <tr><td>FCT Lifetime</td><td>Lifetime ([FCT] section)</td><td>fctLifetime</td><td>2.5</td><td>Seconds each FCT number floats before fading</td></tr>
             <tr><td>FCT Base Font Size</td><td>BaseFontSize ([FCT] section)</td><td>fctBaseFontSize</td><td>24.0</td><td>Base font size in pixels for FCT</td></tr>
             <tr><td>FCT Font Scale</td><td>FontScale ([FCT] section)</td><td>fctFontScale</td><td>1.5</td><td>Scale multiplier for FCT font size</td></tr>
             <tr><td>FCT Shadow Offset</td><td>ShadowOffset ([FCT] section)</td><td>fctShadowOffset</td><td>2.0</td><td>Pixel offset for drop shadow behind FCT text</td></tr>
             <tr><td>FCT Float Distance</td><td>FloatDistance ([FCT] section)</td><td>fctFloatDistance</td><td>150.0</td><td>How far (in pixels) each FCT entry floats upward</td></tr>
             <tr><td>FCT Arc Scale</td><td>ArcScale ([FCT] section)</td><td>fctArcScale</td><td>1.0</td><td>Scale multiplier for arc-based directional spread for rapid hits</td></tr>
-            <tr><td>FCT Icons</td><td>Icons ([FCT] section)</td><td>fctShowIcons</td><td>true</td><td>Show damage-type icons alongside FCT numbers</td></tr>
+            <tr><td>FCT Icons</td><td>Icons ([FCT] section)</td><td>showFCT_Icons</td><td>true</td><td>Show damage-type icons alongside FCT numbers</td></tr>
             <tr><td>FCT Icon Scale</td><td>IconScale ([FCT] section)</td><td>fctIconScale</td><td>1.0</td><td>Scale multiplier for FCT icons</td></tr>
         </tbody>
     </table>
