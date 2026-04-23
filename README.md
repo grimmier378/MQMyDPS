@@ -33,7 +33,7 @@ A native C++ MacroQuest plugin for EverQuest that provides real-time DPS trackin
 
 ### Floating Combat Text
 
-<video src="https://raw.githubusercontent.com/grimmier378/MQMyDPS/main/Documentation/media/fct_demo.mp4" controls width="600"></video>
+<video src="https://github.com/user-attachments/assets/96888ab0-cb89-49d7-80a1-a310d3fc5fa3" controls width="600"></video>
 
 ## Getting Started
 
