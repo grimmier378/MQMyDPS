@@ -100,6 +100,7 @@ struct BattleData
 	int64_t dotDamage       = 0;
 	int64_t petDamage       = 0;
 	int64_t nonMeleeDamage  = 0;
+	int64_t dsDamage        = 0;
 	int64_t directHeals     = 0;
 	int64_t critHeals       = 0;
 	int     hitCount        = 0;

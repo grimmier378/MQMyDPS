@@ -66,6 +66,7 @@ public:
 	int64_t battleDotDamage   = 0;
 	int64_t battlePetDamage   = 0;
 	int64_t battleNonMeleeDmg = 0;
+	int64_t battleDsDamage    = 0;
 	int64_t battleDirectHeals = 0;
 	int64_t battleCritHeals   = 0;
 	int     battleHitCount    = 0;

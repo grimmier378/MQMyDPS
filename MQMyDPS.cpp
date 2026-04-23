@@ -472,6 +472,7 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			battleDotDamage = 0;
 			battlePetDamage = 0;
 			battleNonMeleeDmg = 0;
+			battleDsDamage = 0;
 			battleDirectHeals = 0;
 			battleCritHeals = 0;
 			battleHitCount = 0;
@@ -512,6 +513,8 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 				battlePetDamage += record.damage;
 			if (record.type == DamageType::NonMelee)
 				battleNonMeleeDmg += record.damage;
+			if (record.type == DamageType::DamageShield)
+				battleDsDamage += record.damage;
 
 			auto& target = currentTargets[spawnID];
 			if (target.name.empty())
@@ -665,6 +668,7 @@ void MyDPSEngine::FinalizeBattle()
 		battle.dotDamage = battleDotDamage;
 		battle.petDamage = battlePetDamage;
 		battle.nonMeleeDamage = battleNonMeleeDmg;
+		battle.dsDamage = battleDsDamage;
 		battle.directHeals = battleDirectHeals;
 		battle.critHeals = battleCritHeals;
 		battle.hitCount = battleHitCount;
@@ -708,6 +712,7 @@ void MyDPSEngine::FinalizeBattle()
 	battleDotDamage = 0;
 	battlePetDamage = 0;
 	battleNonMeleeDmg = 0;
+	battleDsDamage = 0;
 	battleDirectHeals = 0;
 	battleCritHeals = 0;
 	battleHitCount = 0;
@@ -737,6 +742,7 @@ void MyDPSEngine::ResetAll()
 	battleDotDamage = 0;
 	battlePetDamage = 0;
 	battleNonMeleeDmg = 0;
+	battleDsDamage = 0;
 	battleDirectHeals = 0;
 	battleCritHeals = 0;
 	battleHitCount = 0;

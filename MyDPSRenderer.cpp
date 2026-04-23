@@ -317,7 +317,7 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 		return;
 	}
 
-	if (ImGui::BeginTable("History", 12,
+	if (ImGui::BeginTable("History", 13,
 		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
 		| ImGuiTableFlags_Hideable | ImGuiTableFlags_Reorderable
 		| ImGuiTableFlags_ScrollY))
@@ -326,13 +326,14 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 		ImGui::TableSetupColumn("DPS", ImGuiTableColumnFlags_DefaultSort);
 		ImGui::TableSetupColumn("Duration");
 		ImGui::TableSetupColumn("Avg");
+		ImGui::TableSetupColumn("Melee");
 		ImGui::TableSetupColumn("Crits");
 		ImGui::TableSetupColumn("DoTs");
 		ImGui::TableSetupColumn("Pet");
 		ImGui::TableSetupColumn("Non-Melee");
 		ImGui::TableSetupColumn("Heals");
 		ImGui::TableSetupColumn("Crit Heals");
-		ImGui::TableSetupColumn("Total");
+		ImGui::TableSetupColumn("Total Damage");
 		ImGui::TableSetupColumn("Total Heals");
 		ImGui::TableHeadersRow();
 
@@ -355,9 +356,13 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 				return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
 			};
 
+			int64_t bMelee = b.totalDamage - b.nonMeleeDamage - b.dotDamage - b.petDamage - b.dsDamage;
+			if (bMelee < 0) bMelee = 0;
+
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("dps"),       "%.1f", b.dps);
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("duration"),  "%.0fs", b.durationSeconds);
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("avg"),       "%.0f", b.avgDamage);
+			ImGui::TableNextColumn(); ImGui::TextColored(Clr("hit"),       "%s", FormatNumber(bMelee).c_str());
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("crit"),      "%s", FormatNumber(b.critDamage).c_str());
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("dot"),       "%s", FormatNumber(b.dotDamage).c_str());
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("pet"),       "%s", FormatNumber(b.petDamage).c_str());
@@ -379,6 +384,7 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 				ImVec4 cDPS     = C("dps");
 				ImVec4 cDur     = C("duration");
 				ImVec4 cAvg     = C("avg");
+				ImVec4 cHit     = C("hit");
 				ImVec4 cCrit    = C("crit");
 				ImVec4 cDoT     = C("dot");
 				ImVec4 cPet     = C("pet");
@@ -389,6 +395,9 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 
 				for (const auto& [tgtID, tgt] : b.targets)
 				{
+					int64_t tMelee = tgt.totalDamage - tgt.nonMeleeDamage - tgt.dotDamage - tgt.petDamage - tgt.dsDamage;
+					if (tMelee < 0) tMelee = 0;
+
 					std::string tgtLabel = tgt.spawnID > 0
 						? fmt::format("  {} (#{})", tgt.name, tgt.spawnID)
 						: fmt::format("  {}", tgt.name);
@@ -397,6 +406,7 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 					ImGui::TableNextColumn(); ImGui::TextColored(cDPS,    "%.1f", tgt.GetDPS());
 					ImGui::TableNextColumn(); ImGui::TextColored(cDur,    "%.0fs", tgt.GetDurationSeconds());
 					ImGui::TableNextColumn(); ImGui::TextColored(cAvg,    "%.0f", tgt.GetAvgDamage());
+					ImGui::TableNextColumn(); ImGui::TextColored(cHit,    "%s", FormatNumber(tMelee).c_str());
 					ImGui::TableNextColumn(); ImGui::TextColored(cCrit,   "%s", FormatNumber(tgt.critDamage).c_str());
 					ImGui::TableNextColumn(); ImGui::TextColored(cDoT,    "%s", FormatNumber(tgt.dotDamage).c_str());
 					ImGui::TableNextColumn(); ImGui::TextColored(cPet,    "%s", FormatNumber(tgt.petDamage).c_str());
@@ -413,6 +423,7 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 					{
 						ImGui::TableNextRow();
 						ImGui::TableNextColumn(); ImGui::TextColored(cHealTgt, "  %s", ht.name.c_str());
+						ImGui::TableNextColumn(); ImGui::TextColored(cDur,     "-");
 						ImGui::TableNextColumn(); ImGui::TextColored(cDur,     "-");
 						ImGui::TableNextColumn(); ImGui::TextColored(cDur,     "-");
 						ImGui::TableNextColumn(); ImGui::TextColored(cDur,     "-");
@@ -569,7 +580,7 @@ void MyDPSRenderer::RebuildGraphCache(MyDPSEngine& engine)
 		m_gDD[i]        = static_cast<float>(b.nonMeleeDamage);
 		m_gHeals[i]     = static_cast<float>(b.directHeals);
 		m_gCritHeals[i] = static_cast<float>(b.critHeals);
-		m_gMelee[i]     = static_cast<float>(b.totalDamage) - m_gCrits[i] - m_gDots[i] - m_gDD[i] - m_gPets[i];
+		m_gMelee[i]     = static_cast<float>(b.totalDamage) - m_gDots[i] - m_gDD[i] - m_gPets[i] - static_cast<float>(b.dsDamage);
 		if (m_gMelee[i] < 0) m_gMelee[i] = 0;
 	}
 }
