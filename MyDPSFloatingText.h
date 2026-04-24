@@ -14,6 +14,57 @@
 #include <unordered_map>
 #include <vector>
 
+struct FCTBoneInfo
+{
+	int         index;
+	const char* label;
+};
+
+inline const std::vector<FCTBoneInfo>& GetFCTBoneList()
+{
+	static const std::vector<FCTBoneInfo> list = {
+		{ 0,  "Head"           },
+		{ 11, "Chest"          },
+		{ 14, "Pelvis"         },
+		{ 20, "Legs"           },
+		{ 21, "Left Boot"      },
+		{ 22, "Right Boot"     },
+		{ 1,  "Helm"           },
+		{ 2,  "Guild"          },
+		{ 3,  "Primary"        },
+		{ 4,  "Secondary"      },
+		{ 5,  "Shield"         },
+		{ 6,  "Blood Spurt"    },
+		{ 7,  "Tunic"          },
+		{ 8,  "Hair"           },
+		{ 9,  "Beard"          },
+		{ 10, "Eyebrows"       },
+		{ 12, "Left Bracer"    },
+		{ 13, "Right Bracer"   },
+		{ 15, "Spell"          },
+		{ 16, "Camera"         },
+		{ 17, "Arms"           },
+		{ 18, "Left Glove"     },
+		{ 19, "Right Glove"    },
+		{ 23, "Torch"          },
+		{ 24, "Facial"         },
+		{ 25, "Tattoo"         },
+		{ 26, "Left Shoulder"  },
+		{ 27, "Right Shoulder" },
+	};
+	return list;
+}
+
+inline const char* GetBoneLabelByIndex(int boneIndex)
+{
+	for (const auto& b : GetFCTBoneList())
+	{
+		if (b.index == boneIndex)
+			return b.label;
+	}
+	return "Unknown";
+}
+
 struct FCTEntry
 {
 	int         spawnID     = 0;
@@ -84,7 +135,7 @@ private:
 	}
 
 	bool IsTypeEnabled(DamageType type, const MyDPSSettings& settings) const;
-	bool ProjectSpawnToScreen(int spawnID, float& outX, float& outY) const;
+	bool ProjectSpawnToScreen(int spawnID, float& outX, float& outY, int bonePlayer, int boneOther) const;
 };
 
 inline FCTManager::~FCTManager()
@@ -216,7 +267,7 @@ inline void FCTManager::Clear()
 	m_nextSlot = 0;
 }
 
-inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& outY) const
+inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& outY, int bonePlayer, int boneOther) const
 {
 	PlayerClient* pSpawn = GetSpawnByID(spawnID);
 	if (!pSpawn)
@@ -229,7 +280,8 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 	glm::vec3 worldPos;
 
 	CActorInterface* pActor = pSpawn->mActorClient.pActor;
-	EBones boneIdx = (pSpawn->Type == SPAWN_PLAYER) ? eBoneChest : eBoneLegs;
+	EBones boneIdx = static_cast<EBones>(
+		(pSpawn->Type == SPAWN_PLAYER) ? bonePlayer : boneOther);
 	if (pActor && pActor->GetBoneByIndex(boneIdx))
 	{
 		pActor->GetBoneWorldPosition(boneIdx, reinterpret_cast<CVector3*>(&worldPos), false);
@@ -280,7 +332,8 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 			continue;
 
 		float screenX = 0, screenY = 0;
-		if (!ProjectSpawnToScreen(entry.spawnID, screenX, screenY))
+		if (!ProjectSpawnToScreen(entry.spawnID, screenX, screenY,
+				settings.fctBonePlayer, settings.fctBoneOther))
 			continue;
 
 		float t = entry.lifetime / entry.maxLifetime;

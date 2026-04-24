@@ -237,7 +237,7 @@ ImGui::PopFont();</code></pre>
 
     <h2>Tab: History</h2>
 
-    <p>The history table has <strong>12 columns</strong>, all hideable and reorderable
+    <p>The history table has <strong>13 columns</strong>, all hideable and reorderable
     except Battle# which is marked <code>ImGuiTableColumnFlags_NoHide</code>. The full
     column list:</p>
 
@@ -252,9 +252,10 @@ ImGui::PopFont();</code></pre>
             <tr><td>DoTs</td><td>"dot"</td><td>Battle DoT damage total</td><td>Per-target DoT damage</td><td>"-"</td></tr>
             <tr><td>Pet</td><td>"pet"</td><td>Battle pet damage total</td><td>Per-target pet damage</td><td>"-"</td></tr>
             <tr><td>Non-Melee</td><td>"non-melee"</td><td>Battle non-melee total</td><td>Per-target non-melee damage</td><td>"-"</td></tr>
+            <tr><td>Melee</td><td>"hit"</td><td>totalDamage - nonMelee - DoT - pet - DS (floored at 0)</td><td>Per-target melee (same formula)</td><td>"-"</td></tr>
             <tr><td>Heals</td><td>"heal"</td><td>Battle direct heals total</td><td>"-"</td><td>Player's directHeals</td></tr>
             <tr><td>Crit Heals</td><td>"critHeals"</td><td>Battle crit heals total</td><td>"-"</td><td>Player's critHeals</td></tr>
-            <tr><td>Total</td><td>"total"</td><td>Total damage this battle</td><td>Per-target total damage</td><td>"-"</td></tr>
+            <tr><td>Total Damage</td><td>"total"</td><td>Total damage this battle</td><td>Per-target total damage</td><td>"-"</td></tr>
             <tr><td>Total Heals</td><td>"heal"</td><td>directHeals (total heals)</td><td>"-"</td><td>Player's GetTotalHeals()</td></tr>
         </tbody>
     </table>
@@ -266,6 +267,8 @@ ImGui::PopFont();</code></pre>
         you can right-click the header row to show/hide any column except Battle# (which has
         the <code>NoHide</code> flag), and you can drag column headers to rearrange them. The
         <code>ScrollY</code> flag enables vertical scrolling when many battles are recorded.
+        The "Melee" column is computed as <code>totalDamage - nonMeleeDamage - dotDamage -
+        petDamage - dsDamage</code>, clamped to a minimum of 0.
     </div>
 
     <div class="screenshot-grid">
@@ -283,7 +286,7 @@ ImGui::PopFont();</code></pre>
     <code>TreeNode</code> whose label reads
     <code>"Battle (N) NPC (N) Healed (N)"</code>, showing the battle number, the
     number of damage targets, and the number of healed players at a glance. When
-    expanded, per-target sub-rows appear within the same 12-column layout. Target name
+    expanded, per-target sub-rows appear within the same 13-column layout. Target name
     cells use "dmg-target" coloring (reddish pink). Columns that do not apply to target
     rows (the heal-related columns) show a dash ("-") rendered in the "duration" color.</p>
 
@@ -441,8 +444,10 @@ static constexpr int GRAPH_MAX_BACK = 250;  // max history depth</code></pre>
     legend is positioned in the top-right corner and is clickable &mdash; clicking a
     series name in the legend hides or shows that series.</p>
 
-    <p>The "Melee" series is computed as total damage minus crits, DoTs, DD, and pets
-    (with a floor of 0), so it represents the remaining melee-only portion of damage.</p>
+    <p>The "Melee" series is computed as total damage minus DoTs, DD, pets, and DS
+    (with a floor of 0), so it represents the remaining melee-only portion of damage.
+    Crits are tracked separately and not included in totalDamage, so they are not
+    subtracted.</p>
 
     <h3>Bar Chart: Damage Breakdown Bars</h3>
 
@@ -601,7 +606,7 @@ BoolEntry bools[] = {
         <tbody>
             <tr><td>Display</td><td>12 bool checkboxes in a table, plus Display Time slider, Battle End Delay slider, Font Scale slider, Output Font Scale slider</td><td>165</td></tr>
             <tr><td>Colors</td><td>Background color picker + UI-only damageColors entries (background, dmg-target, heal-target, dps, duration, avg, total) in a table</td><td>150</td></tr>
-            <tr><td>FCT</td><td>Enable FCT master checkbox, Distinct Melee checkbox, unified type table (Type | Color | Icon | Reset), plus Base Font Size, Font Scale, Shadow Offset, Lifetime, Float Distance, Arc Scale, Icon Scale sliders</td><td>120 (toggles)</td></tr>
+            <tr><td>FCT</td><td>Enable FCT master checkbox, Distinct Melee checkbox, unified type table (Type | Color | Icon | Reset), plus Base Font Size, Font Scale, Shadow Offset, Lifetime, Float Distance, Arc Scale, Icon Scale sliders, and Bone Anchor combos (Player Bone / Other Bone)</td><td>120 (toggles)</td></tr>
             <tr><td>Theme</td><td>Theme picker combo via <code>ImGuiTheme::DrawThemePicker</code></td><td>&mdash;</td></tr>
         </tbody>
     </table>

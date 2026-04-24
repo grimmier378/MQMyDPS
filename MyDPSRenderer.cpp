@@ -1099,6 +1099,43 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				ImGui::SliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
 				ImGui::SliderFloat("Lifetime (s)", &s.fctLifetime, 1.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+
+				ImGui::Separator();
+				ImGui::Text("Bone Anchors");
+
+				const auto& bones = GetFCTBoneList();
+
+				ImGui::SetNextItemWidth(150);
+				if (ImGui::BeginCombo("Player Bone", GetBoneLabelByIndex(s.fctBonePlayer)))
+				{
+					for (int i = 0; i < static_cast<int>(bones.size()); ++i)
+					{
+						if (i == 6)
+							ImGui::Separator();
+						bool isSelected = (s.fctBonePlayer == bones[i].index);
+						if (ImGui::Selectable(bones[i].label, isSelected))
+							s.fctBonePlayer = bones[i].index;
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+
+				ImGui::SetNextItemWidth(150);
+				if (ImGui::BeginCombo("Other Bone", GetBoneLabelByIndex(s.fctBoneOther)))
+				{
+					for (int i = 0; i < static_cast<int>(bones.size()); ++i)
+					{
+						if (i == 6)
+							ImGui::Separator();
+						bool isSelected = (s.fctBoneOther == bones[i].index);
+						if (ImGui::Selectable(bones[i].label, isSelected))
+							s.fctBoneOther = bones[i].index;
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
 			}
 			ImGui::EndChild();
 			ImGui::EndTabItem();

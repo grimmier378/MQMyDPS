@@ -312,6 +312,8 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.fctFontScale = static_cast<float>(atof(buf));
 	GetPrivateProfileString("FCT", "ShadowOffset", "2.0", buf, sizeof(buf), path);
 	settings.fctShadowOffset = static_cast<float>(atof(buf));
+	settings.fctBonePlayer = GetPrivateProfileInt("FCT", "BonePlayer", 11, path);
+	settings.fctBoneOther  = GetPrivateProfileInt("FCT", "BoneOther",  20, path);
 
 	settings.fctIconOverrides.clear();
 	for (const auto& info : GetFCTTypeInfoList())
@@ -388,6 +390,8 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileString("FCT", "BaseFontSize", floatStr(settings.fctBaseFontSize), path);
 	WritePrivateProfileString("FCT", "FontScale", floatStr(settings.fctFontScale), path);
 	WritePrivateProfileString("FCT", "ShadowOffset", floatStr(settings.fctShadowOffset), path);
+	WritePrivateProfileInt("FCT", "BonePlayer", settings.fctBonePlayer, path);
+	WritePrivateProfileInt("FCT", "BoneOther",  settings.fctBoneOther,  path);
 
 	for (const auto& info : GetFCTTypeInfoList())
 	{

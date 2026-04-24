@@ -193,6 +193,8 @@ struct MyDPSSettings
 	float fctBaseFontSize   = 24.0f;
 	float fctFontScale      = 1.5f;
 	float fctShadowOffset   = 2.0f;
+	int   fctBonePlayer     = 11;   // eBoneChest
+	int   fctBoneOther      = 20;   // eBoneLegs
 
 	std::unordered_map<std::string, ImVec4> damageColors;
 	std::unordered_map<std::string, FCTIconOverride> fctIconOverrides;

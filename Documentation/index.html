@@ -68,8 +68,9 @@
         per player target. The Healing tab shows aggregated session heals per player, sorted
         by total, with a pie chart breakdown.</li>
         <li><strong>Battle history:</strong> Completed battles are stored with per-target
-        and per-heal-target breakdowns. The History table has 12 columns (hideable,
-        reorderable), with expandable rows per spawn and heal target sections.</li>
+        and per-heal-target breakdowns. The History table has 13 columns (hideable,
+        reorderable) including a computed Melee column, with expandable rows per spawn
+        and heal target sections.</li>
         <li><strong>Full color-coded UI:</strong> Stats values in the Current Battle tab are
         colored by data type. Target names use distinct colors: damage targets in reddish
         pink, heal targets in light blue. The menu bar DPS counter is also color-coded.</li>
@@ -85,15 +86,16 @@
         heal reports, and the <code>/mydps report</code> command output are automatically
         sent to a dedicated "MyDPS" channel in MQMyChat using MQ color codes.</li>
         <li><strong>Floating combat text (FCT):</strong> Bone-anchored floating numbers
-        rendered directly over mob heads in the 3D game world. Uses the chest bone for
-        position projection when available, with avatar-height fallback. Features
-        pop-in animation (scale from 1.4x to 1.0x), upward float, fade-out, drop shadow,
-        arc-based directional spread, optional damage-type icons, and per-type toggles
-        (Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By). Each type uses a distinct
-        color from user color settings
-        &mdash; melee uses the "hit" color key since melee subtypes (crush, slash, etc.) are
-        only distinguished in the combat spam overlay. Configurable via <code>/mydps fct</code>
-        and the <code>[FCT]</code> INI section.</li>
+        rendered directly over mob heads in the 3D game world. Uses configurable bone
+        anchors (default: chest for players, legs for NPCs) with avatar-height fallback.
+        The bone anchor for player and NPC spawns can be changed independently via the
+        config window. Features pop-in animation (scale from 1.4x to 1.0x), upward float,
+        fade-out, drop shadow, arc-based directional spread, optional damage-type icons,
+        and per-type toggles (Melee, DD, DoT, Pet, Crit, Heals, Crit Heals, Hit By). Each
+        type uses a distinct color from user color settings &mdash; melee uses the "hit"
+        color key since melee subtypes (crush, slash, etc.) are only distinguished in the
+        combat spam overlay. Configurable via <code>/mydps fct</code> and the
+        <code>[FCT]</code> INI section.</li>
         <li><strong>Theme support:</strong> 11 built-in themes, configurable in the Theme
         tab of the config window. The selected theme is persisted as
         <code>ThemeIdx</code> in the INI file.</li>

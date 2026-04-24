@@ -31,10 +31,11 @@
     <div class="note">
         <strong>April 2026 update:</strong> The alternating fan spread system (xOffset) has been
         replaced with arc-based directional spread (dirAngle + arcAmount). Spell icons now render
-        next to FCT numbers. The bone anchor uses eBoneChest for player spawns and eBoneLegs for
-        NPC spawns. Custom icon overrides per damage type with a visual icon picker. Distinct
-        melee verb colors/icons toggle. Unified FCT type table in config UI. A_DragItem (item
-        icons) support alongside A_SpellGems.
+        next to FCT numbers. The bone anchor is user-configurable: separate settings for player
+        spawns and NPC spawns (defaulting to eBoneChest and eBoneLegs respectively). Custom icon
+        overrides per damage type with a visual icon picker. Distinct melee verb colors/icons
+        toggle. Unified FCT type table in config UI. A_DragItem (item icons) support alongside
+        A_SpellGems.
     </div>
 
     <h2>Overview</h2>
@@ -290,12 +291,14 @@ float floatY = dy + perpY;</code></pre>
 
     <h3>World Position</h3>
 
-    <p>The function selects a bone anchor based on the spawn type: <code>eBoneChest</code>
-    for player spawns and <code>eBoneLegs</code> for NPC spawns. This split improves
-    visibility on large NPCs (dragons, giants) where chest-anchored text can still float
-    too high above where the player is looking.</p>
+    <p>The function selects a bone anchor based on the spawn type, using two user-configurable
+    settings: <code>fctBonePlayer</code> (default: 11, eBoneChest) for player spawns and
+    <code>fctBoneOther</code> (default: 20, eBoneLegs) for NPC spawns. The bone index is
+    stored as an <code>int</code> in <code>MyDPSSettings</code> and cast to <code>EBones</code>
+    at the point of use, avoiding an eqlib dependency in the data header.</p>
 
-    <pre><code>EBones boneIdx = (pSpawn->Type == SPAWN_PLAYER) ? eBoneChest : eBoneLegs;
+    <pre><code>EBones boneIdx = static_cast&lt;EBones&gt;(
+    (pSpawn->Type == SPAWN_PLAYER) ? bonePlayer : boneOther);
 
 CActorInterface* pActor = pSpawn->mActorClient.pActor;
 if (pActor &amp;&amp; pActor->GetBoneByIndex(boneIdx))
@@ -303,9 +306,16 @@ if (pActor &amp;&amp; pActor->GetBoneByIndex(boneIdx))
     pActor->GetBoneWorldPosition(boneIdx, reinterpret_cast&lt;CVector3*&gt;(&amp;worldPos), false);
 }</code></pre>
 
-    <p>For player spawns (your character, other players), the chest bone keeps FCT text at a
-    natural reading height. For NPC spawns, the legs bone anchors text lower on the model,
-    which keeps damage numbers visible and near the action even on very large creatures.</p>
+    <p>The default split (chest for players, legs for NPCs) improves visibility on large NPCs
+    (dragons, giants) where chest-anchored text can float too high. Users can change the bone
+    anchor for each spawn type via the config window's "Bone Anchors" section (two combo boxes)
+    to handle edge cases like flying mobs or super-large spawns where a different bone produces
+    better positioning.</p>
+
+    <p>The full list of 28 selectable bones is defined in <code>GetFCTBoneList()</code> in
+    <code>MyDPSFloatingText.h</code>. The first 6 entries (Head, Chest, Pelvis, Legs, Left
+    Boot, Right Boot) are the most practical choices; the remaining 22 bones are available
+    for fine-tuning.</p>
 
     <p>If the actor or chest bone is unavailable (mob is too far away, model not loaded, or
     certain NPC types), the fallback uses the spawn's raw coordinates offset by avatar height:</p>
@@ -573,6 +583,8 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td>ArcScale</td><td><code>fctArcScale</code></td><td>float</td><td>1.0</td><td>Multiplier for arc curvature. 0 = straight lines, higher = more curve. Range: 0.0 to 3.0.</td></tr>
             <tr><td>DistinctMelee</td><td><code>fctDistinctMelee</code></td><td>bool</td><td>true</td><td>When true, each melee verb gets its own color and icon. When false, all melee uses generic "hit" styling.</td></tr>
             <tr><td>UseSpellIcons</td><td><code>fctUseSpellIcons</code></td><td>bool</td><td>false</td><td>When true, spell-based types (NonMelee, DoT, Crit, DirectHeal, CritHeal) resolve the actual spell icon via <code>GetSpellByName()</code> before falling back to defaults. When false, only hardcoded defaults are used.</td></tr>
+            <tr><td>BonePlayer</td><td><code>fctBonePlayer</code></td><td>int</td><td>11</td><td>Bone index for anchoring FCT text on player spawns. Default 11 = eBoneChest. Configurable via the "Player Bone" combo in the config UI.</td></tr>
+            <tr><td>BoneOther</td><td><code>fctBoneOther</code></td><td>int</td><td>20</td><td>Bone index for anchoring FCT text on NPC spawns. Default 20 = eBoneLegs. Configurable via the "Other Bone" combo in the config UI.</td></tr>
         </tbody>
     </table>
 
@@ -604,6 +616,21 @@ engine.fctManager.Render(engine.settings);</code></pre>
             <tr><td>Arc Scale</td><td>0.0 &ndash; 3.0</td><td>1.0</td><td>%.2f</td></tr>
         </tbody>
     </table>
+
+    <p>Below the sliders, a <strong>Bone Anchors</strong> section provides two combo boxes
+    (150px wide) for selecting which bone the FCT text anchors to:</p>
+
+    <table>
+        <thead><tr><th>Combo Label</th><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td>Player Bone</td><td><code>fctBonePlayer</code></td><td>Chest (11)</td><td>Bone anchor for player character spawns.</td></tr>
+            <tr><td>Other Bone</td><td><code>fctBoneOther</code></td><td>Legs (20)</td><td>Bone anchor for NPC and other non-player spawns.</td></tr>
+        </tbody>
+    </table>
+
+    <p>Each combo lists all 28 EQ bones from <code>GetFCTBoneList()</code>. The first 6
+    practical bones (Head, Chest, Pelvis, Legs, Left Boot, Right Boot) are separated from
+    the remaining bones by a visual separator in the dropdown.</p>
 
     <h2>Type Filtering</h2>
 
