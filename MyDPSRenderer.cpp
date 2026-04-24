@@ -18,15 +18,6 @@ MyDPSRenderer::~MyDPSRenderer()
 	m_pPickerItemAnim = nullptr;
 }
 
-static std::string FormatNumber(int64_t value)
-{
-	if (value >= 1000000)
-		return fmt::format("{:.1f}m", value / 1000000.0);
-	if (value >= 1000)
-		return fmt::format("{:.1f}k", value / 1000.0);
-	return fmt::format("{}", value);
-}
-
 void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 {
 	if (!engine.showCombatSpam || !engine.tracking)
@@ -343,6 +334,11 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 			? -1 : static_cast<int>(engine.battleHistory.size());
 		int step = engine.settings.sortNewest ? -1 : 1;
 
+		auto Clr = [&](const char* key) -> ImVec4 {
+			auto it = engine.settings.damageColors.find(key);
+			return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+		};
+
 		for (int i = startIdx; i != endIdx; i += step)
 		{
 			const auto& b = engine.battleHistory[i];
@@ -351,10 +347,6 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 			ImGui::TableNextColumn();
 			bool expanded = ImGui::TreeNode("##battle", "Battle (%d) NPC (%d) Healed (%d)",
 				b.battleNumber, static_cast<int>(b.targets.size()), static_cast<int>(b.healTargets.size()));
-			auto Clr = [&](const char* key) -> ImVec4 {
-				auto it = engine.settings.damageColors.find(key);
-				return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
-			};
 
 			int64_t bMelee = b.totalDamage - b.nonMeleeDamage - b.dotDamage - b.petDamage - b.dsDamage;
 			if (bMelee < 0) bMelee = 0;
@@ -374,24 +366,19 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 
 			if (expanded)
 			{
-				auto C = [&](const char* key) -> ImVec4 {
-					auto it = engine.settings.damageColors.find(key);
-					return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
-				};
-
-				ImVec4 cDmgTgt  = C("dmg-target");
-				ImVec4 cHealTgt = C("heal-target");
-				ImVec4 cDPS     = C("dps");
-				ImVec4 cDur     = C("duration");
-				ImVec4 cAvg     = C("avg");
-				ImVec4 cHit     = C("hit");
-				ImVec4 cCrit    = C("crit");
-				ImVec4 cDoT     = C("dot");
-				ImVec4 cPet     = C("pet");
-				ImVec4 cNonMel  = C("non-melee");
-				ImVec4 cHeal    = C("heal");
-				ImVec4 cCritH   = C("critHeals");
-				ImVec4 cTotal   = C("total");
+				ImVec4 cDmgTgt  = Clr("dmg-target");
+				ImVec4 cHealTgt = Clr("heal-target");
+				ImVec4 cDPS     = Clr("dps");
+				ImVec4 cDur     = Clr("duration");
+				ImVec4 cAvg     = Clr("avg");
+				ImVec4 cHit     = Clr("hit");
+				ImVec4 cCrit    = Clr("crit");
+				ImVec4 cDoT     = Clr("dot");
+				ImVec4 cPet     = Clr("pet");
+				ImVec4 cNonMel  = Clr("non-melee");
+				ImVec4 cHeal    = Clr("heal");
+				ImVec4 cCritH   = Clr("critHeals");
+				ImVec4 cTotal   = Clr("total");
 
 				for (const auto& [tgtID, tgt] : b.targets)
 				{
@@ -1043,10 +1030,10 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							bool drewIcon = false;
 							if (iconID >= 0)
 							{
-								CTextureAnimation* anim = (iconID >= 500) ? m_pPickerItemAnim : m_pPickerSpellAnim;
+								CTextureAnimation* anim = (iconID >= FCT_ITEM_ICON_OFFSET) ? m_pPickerItemAnim : m_pPickerSpellAnim;
 								if (anim)
 								{
-									int cell = (iconID >= 500) ? (iconID - 500) : iconID;
+									int cell = (iconID >= FCT_ITEM_ICON_OFFSET) ? (iconID - FCT_ITEM_ICON_OFFSET) : iconID;
 									anim->SetCurCell(cell);
 									mq::imgui::DrawTextureAnimation(anim, CXSize(24, 24));
 									drewIcon = true;
@@ -1226,7 +1213,7 @@ void MyDPSRenderer::RenderIconPicker(MyDPSEngine& engine)
 	ImGui::SetNextItemWidth(150);
 	ImGui::SliderFloat("Icon Size", &m_iconPickerScale, 0.5f, 3.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp);
 
-	int maxIcon = m_iconPickerShowItems ? 12599 : 499;
+	int maxIcon = m_iconPickerShowItems ? FCT_MAX_ITEM_ICON : FCT_MAX_SPELL_ICON;
 	int iconsPerPage = 500;
 	int maxPage = (maxIcon / iconsPerPage) + 1;
 	if (m_iconPickerPage < 1) m_iconPickerPage = 1;
@@ -1266,7 +1253,7 @@ void MyDPSRenderer::RenderIconPicker(MyDPSEngine& engine)
 				ImGui::SetCursorScreenPos(cursorPos);
 				if (ImGui::InvisibleButton("##icon", ImVec2(iconSize, iconSize)))
 				{
-					int storedID = m_iconPickerShowItems ? (id + 500) : id;
+					int storedID = m_iconPickerShowItems ? (id + FCT_ITEM_ICON_OFFSET) : id;
 					engine.settings.fctIconOverrides[m_iconPickerKey] = { storedID, m_iconPickerShowItems };
 					m_iconPickerOpen = false;
 					selected = true;
@@ -1274,7 +1261,7 @@ void MyDPSRenderer::RenderIconPicker(MyDPSEngine& engine)
 
 				if (!selected && ImGui::IsItemHovered())
 				{
-					int displayID = m_iconPickerShowItems ? (id + 500) : id;
+					int displayID = m_iconPickerShowItems ? (id + FCT_ITEM_ICON_OFFSET) : id;
 					ImGui::SetTooltip("%s Icon: %d",
 						m_iconPickerShowItems ? "Item" : "Spell", displayID);
 				}

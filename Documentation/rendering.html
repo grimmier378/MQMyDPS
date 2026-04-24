@@ -112,22 +112,28 @@ if (wasOpen &amp;&amp; !engine.showMainWindow)
     <h2>The Color Lookup Lambda</h2>
 
     <p>Every rendering function that needs to color text defines a local lambda named
-    <code>C</code> (or <code>Clr</code> in the History tab). This is a key code pattern
-    used throughout the renderer:</p>
+    <code>Clr</code>. This is a key code pattern used throughout the renderer:</p>
 
-    <pre><code>auto C = [&amp;](const char* key) -&gt; ImVec4 {
+    <pre><code>auto Clr = [&amp;](const char* key) -&gt; ImVec4 {
     auto it = engine.settings.damageColors.find(key);
     return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
 };</code></pre>
 
     <p>With this lambda, coloring a text call looks like:</p>
 
-    <pre><code>ImGui::TextColored(C("dps"), "%.1f", battleDPS);</code></pre>
+    <pre><code>ImGui::TextColored(Clr("dps"), "%.1f", battleDPS);</code></pre>
 
     <p>The lambda does a hash map lookup in <code>settings.damageColors</code> and returns
     white as a safe default if the key is missing. This pattern prevents verbose repeated
     lookups and centralizes the fallback behavior. The lambda captures the engine reference
     by reference (<code>[&amp;]</code>), so it always reads the current settings.</p>
+
+    <p>In <code>RenderHistory()</code>, a single <code>Clr</code> lambda is hoisted before
+    the battle iteration loop so that both battle-level rows and per-target/per-heal
+    sub-rows share the same lookup without duplication. Earlier versions defined
+    separate <code>Clr</code> and <code>C</code> lambdas in different scopes within the
+    same function; these have been consolidated into the single hoisted
+    <code>Clr</code>.</p>
 
     <h2>Font Scaling</h2>
 

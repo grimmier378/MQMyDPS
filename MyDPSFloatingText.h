@@ -12,6 +12,7 @@
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 struct FCTBoneInfo
@@ -95,6 +96,7 @@ private:
 	static constexpr float FADE_START       = 0.6f;
 	static constexpr int   NUM_ANGLE_SLOTS  = 8;
 	static constexpr float ARC_BASE         = 20.0f;
+	static constexpr float PI_F             = 3.14159265f;
 
 	std::vector<FCTEntry> m_entries;
 	int m_nextSlot = 0;
@@ -124,15 +126,6 @@ private:
 	}
 
 	static float EaseOutQuad(float t) { return t * (2.0f - t); }
-
-	static std::string FormatNumber(int64_t value)
-	{
-		if (value >= 1000000)
-			return fmt::format("{:.1f}m", value / 1000000.0);
-		if (value >= 1000)
-			return fmt::format("{:.1f}k", value / 1000.0);
-		return fmt::format("{}", value);
-	}
 
 	bool IsTypeEnabled(DamageType type, const MyDPSSettings& settings) const;
 	bool ProjectSpawnToScreen(int spawnID, float& outX, float& outY, int bonePlayer, int boneOther) const;
@@ -241,18 +234,16 @@ inline void FCTManager::Update(float deltaTime)
 			entry.active = false;
 	}
 
+	std::unordered_set<int> activeSpawns;
+	for (const auto& entry : m_entries)
+	{
+		if (entry.active)
+			activeSpawns.insert(entry.spawnID);
+	}
+
 	for (auto it = m_spawnAngleSlot.begin(); it != m_spawnAngleSlot.end();)
 	{
-		bool found = false;
-		for (const auto& entry : m_entries)
-		{
-			if (entry.active && entry.spawnID == it->first)
-			{
-				found = true;
-				break;
-			}
-		}
-		if (!found)
+		if (activeSpawns.count(it->first) == 0)
 			it = m_spawnAngleSlot.erase(it);
 		else
 			++it;
@@ -345,7 +336,7 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 		float dx = cosf(entry.dirAngle) * distance;
 		float dy = sinf(entry.dirAngle) * distance;
 
-		float arcT = sinf(3.14159f * t);
+		float arcT = sinf(PI_F * t);
 		float perpX = -sinf(entry.dirAngle) * entry.arcAmount * arcT;
 		float perpY =  cosf(entry.dirAngle) * entry.arcAmount * arcT;
 
@@ -362,7 +353,7 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 		float fontSize = settings.fctBaseFontSize * settings.fctFontScale * scale;
 		ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0, entry.displayText.c_str());
 
-		bool isItemIcon = entry.iconCellID >= 500;
+		bool isItemIcon = entry.iconCellID >= FCT_ITEM_ICON_OFFSET;
 		CTextureAnimation* iconAnim = isItemIcon ? m_pItemIconAnim : m_pSpellIconAnim;
 		bool drawIcon = settings.showFCT_Icons && entry.iconCellID >= 0 && iconAnim;
 		float iconSize = fontSize * settings.fctIconScale;
@@ -385,7 +376,7 @@ inline void FCTManager::Render(const MyDPSSettings& settings)
 
 		if (drawIcon)
 		{
-			int cellID = isItemIcon ? (entry.iconCellID - 500) : entry.iconCellID;
+			int cellID = isItemIcon ? (entry.iconCellID - FCT_ITEM_ICON_OFFSET) : entry.iconCellID;
 			iconAnim->SetCurCell(cellID);
 			uint8_t alpha255 = static_cast<uint8_t>(alpha * 255.0f);
 			MQColor tint(255, 255, 255, alpha255);

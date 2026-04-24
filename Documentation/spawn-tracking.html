@@ -26,7 +26,7 @@
 <main class="content">
     <h1>Spawn ID Tracking</h1>
 
-    <p><em>Last Updated: 2026-04-20</em></p>
+    <p><em>Last Updated: 2026-04-23</em></p>
 
     <h2>The Core Problem</h2>
 
@@ -114,6 +114,17 @@ ResolveSpawnID(record)
     |       if 0 or 2+ matches: continue
     |
     +-- return --m_syntheticIDCounter              [Strategy 6: Synthetic Fallback]
+    </div>
+
+    <div class="note">
+        <strong>Crit path target initialization:</strong> When a <code>Crit</code> event
+        is the first hit on a target, the code now properly initializes the
+        <code>TargetDamageData</code> entry with <code>name</code>,
+        <code>spawnID</code>, and <code>firstHit</code>, matching the initialization
+        performed for all other damage types. Previously, if the very first hit on a
+        target was a crit, the target entry would be created with an empty name and an
+        epoch <code>firstHit</code> timestamp, because the crit code path did not
+        include the same new-target initialization logic as the non-crit path.
     </div>
 
     <h2>Strategy 1: Direct Target (Melee, NonMelee, Crit)</h2>

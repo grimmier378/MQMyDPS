@@ -26,7 +26,7 @@
 <main class="content">
     <h1>Architecture</h1>
 
-    <p><em>Last Updated: 2026-04-20</em></p>
+    <p><em>Last Updated: 2026-04-23</em></p>
 
     <h2>High-Level Design</h2>
 
@@ -121,7 +121,7 @@ FinalizeBattle() (when battle ends after delay)
     <h2>File Dependencies</h2>
 
     <div class="diagram">
-MyDPSData.h  (structs only, no dependencies beyond mq/Plugin.h for ImVec4)
+MyDPSData.h  (structs + FormatNumber utility, depends on mq/Plugin.h and fmt/format.h)
     ^
     |
 MyDPSFloatingText.h  (includes MyDPSData.h, FCTEntry struct + FCTManager class)
@@ -137,10 +137,26 @@ MQMyDPS.h  (includes MyDPSData.h + MyDPSFloatingText.h, declares MyDPSEngine)
 MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementation)
     </div>
 
-    <p><code>MyDPSData.h</code> is intentionally kept dependency-free (aside from
-    <code>mq/Plugin.h</code> for <code>ImVec4</code>). It only uses standard library types.
-    This means any file can include it without pulling in all of MacroQuest's headers, which
-    speeds up compilation and prevents accidental coupling.</p>
+    <p><code>MyDPSData.h</code> is kept lightweight, depending only on
+    <code>mq/Plugin.h</code> (for <code>ImVec4</code>) and <code>fmt/format.h</code>.
+    It also contains the <code>FormatNumber</code> inline utility function (abbreviates
+    values as 1.2k, 3.4m), consolidated from three previous duplicate definitions in
+    <code>MQMyDPS.cpp</code>, <code>MyDPSRenderer.cpp</code>, and
+    <code>MyDPSFloatingText.h</code>. Any file can include it without pulling in all of
+    MacroQuest's headers, which speeds up compilation and prevents accidental coupling.</p>
+
+    <p><code>MyDPSData.h</code> also defines named constants for FCT icon ID boundaries,
+    used consistently across the codebase to avoid magic numbers:</p>
+
+    <table>
+        <thead><tr><th>Constant</th><th>Value</th><th>Purpose</th></tr></thead>
+        <tbody>
+            <tr><td><code>FCT_ICON_NONE</code></td><td>-2</td><td>Sentinel value meaning "explicitly no icon" (user removed it)</td></tr>
+            <tr><td><code>FCT_MAX_SPELL_ICON</code></td><td>499</td><td>Maximum valid spell icon cell index (A_SpellGems range: 0&ndash;499)</td></tr>
+            <tr><td><code>FCT_ITEM_ICON_OFFSET</code></td><td>500</td><td>Offset added to item icon cell indices to distinguish them from spell icons</td></tr>
+            <tr><td><code>FCT_MAX_ITEM_ICON</code></td><td>12599</td><td>Maximum valid item icon ID (A_DragItem cell = id - 500)</td></tr>
+        </tbody>
+    </table>
 
     <h2>Key Classes</h2>
 
@@ -261,16 +277,20 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
     checkboxes. These flags are not persisted to the INI &mdash; they reset to defaults
     each session.</p>
 
-    <p>A key pattern used throughout the renderer is the color lookup lambda:</p>
+    <p>A key pattern used throughout the renderer is the color lookup lambda
+    <code>Clr</code>:</p>
 
-    <pre><code>auto C = [&amp;](const char* key) -&gt; ImVec4 {
+    <pre><code>auto Clr = [&amp;](const char* key) -&gt; ImVec4 {
     auto it = engine.settings.damageColors.find(key);
     return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
 };</code></pre>
 
-    <p>This lambda is defined locally inside each rendering function that needs colors. It
-    avoids repeating the map lookup boilerplate on every colored text call. If a key is
-    not found, it falls back to white so nothing crashes.</p>
+    <p>This lambda is defined once per rendering function that needs colors. In
+    <code>RenderHistory()</code>, a single <code>Clr</code> lambda is hoisted before
+    the battle iteration loop so both battle-level and per-target/per-heal sub-rows
+    share the same lookup without duplication. It avoids repeating the map lookup
+    boilerplate on every colored text call. If a key is not found, it falls back to
+    white so nothing crashes.</p>
 
     <p>The config window is organized into four tabs: Display, Colors, FCT, and Theme.
     It uses a data-driven layout: arrays of <code>BoolEntry</code> structs are iterated
@@ -332,6 +352,14 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
     amount already includes the full heal value before the crit notification arrives, so
     adding <code>critHeals</code> would double-count. This value is used for sorting in
     the Healing tab and for the pie chart.</p>
+
+    <p>Critical messages in EQ are always a separate announcement on top of the real
+    damage or heal message. For damage, the crit value equals the actual damage dealt
+    (over-damage is allowed), so <code>critDamage</code> is accurate. For heals, the
+    crit value is the maximum potential &mdash; the actual amount applied may be less
+    if the target was near full health. The <code>critHeals</code> field is displayed
+    in data tables and as floating combat text for reference, but is not included in
+    healing totals since the direct heal message already carries the real applied amount.</p>
 
     <h3>TargetDamageData</h3>
 
@@ -472,9 +500,11 @@ MQMyDPS.cpp  (includes everything, plugin entry point, MyDPSEngine implementatio
         In the combat spam overlay, melee events use the attack verb (crush, slash, etc.)
         as the color key for per-verb coloring, while all other types use
         <code>DamageTypeToColorKey</code>. Pet types always use the <code>"pet"</code>
-        color key in both combat spam and FCT. In FCT, melee also uses a single
-        <code>"hit"</code> key (verb-level coloring would be too noisy for floating text).
-        All colors are user-configurable through the Colors section in the config window.
+        color key in both combat spam and FCT. In FCT, melee defaults to a single
+        <code>"hit"</code> key, but enabling <strong>Distinct Melee</strong> in the FCT
+        config tab switches to per-verb coloring (crush, slash, etc.) matching the combat
+        spam behavior. All colors are user-configurable through the Colors section in
+        the config window.
     </div>
 
     <h2>Floating Combat Text (FCT) System</h2>

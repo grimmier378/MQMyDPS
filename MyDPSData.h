@@ -6,6 +6,16 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <fmt/format.h>
+
+inline std::string FormatNumber(int64_t value)
+{
+	if (value >= 1000000)
+		return fmt::format("{:.1f}m", value / 1000000.0);
+	if (value >= 1000)
+		return fmt::format("{:.1f}k", value / 1000.0);
+	return fmt::format("{}", value);
+}
 
 enum class DamageType : int
 {
@@ -111,7 +121,10 @@ struct BattleData
 	std::unordered_map<std::string, HealTargetData> healTargets;
 };
 
-constexpr int FCT_ICON_NONE = -2;
+constexpr int FCT_ICON_NONE        = -2;
+constexpr int FCT_ITEM_ICON_OFFSET = 500;
+constexpr int FCT_MAX_SPELL_ICON   = 499;
+constexpr int FCT_MAX_ITEM_ICON    = 12599;
 
 struct FCTIconOverride
 {

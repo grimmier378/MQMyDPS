@@ -89,7 +89,7 @@
             <tr><td><code>color</code></td><td>ImVec4</td><td>white</td><td>Text color resolved from user's <code>damageColors</code> settings. Each type maps to a distinct color key.</td></tr>
             <tr><td><code>dirAngle</code></td><td>float</td><td>0.0</td><td>Direction angle in radians for the float path (from pre-defined upper-semicircle slots).</td></tr>
             <tr><td><code>arcAmount</code></td><td>float</td><td>0.0</td><td>Perpendicular arc curve magnitude (signed). Creates a smooth curved path that peaks at the midpoint of the lifetime.</td></tr>
-            <tr><td><code>iconCellID</code></td><td>int</td><td>-1</td><td>Icon cell index. 0-499 = spell icon (A_SpellGems), 500+ = item icon (A_DragItem, cell = id - 500). -1 means no icon is drawn.</td></tr>
+            <tr><td><code>iconCellID</code></td><td>int</td><td>-1</td><td>Icon cell index. 0&ndash;<code>FCT_MAX_SPELL_ICON</code> (499) = spell icon (A_SpellGems), <code>FCT_ITEM_ICON_OFFSET</code> (500)+ = item icon (A_DragItem, cell = id - 500). -1 means no icon is drawn.</td></tr>
             <tr><td><code>lifetime</code></td><td>float</td><td>0</td><td>Elapsed time in seconds since this entry was created.</td></tr>
             <tr><td><code>maxLifetime</code></td><td>float</td><td>2.5</td><td>Total duration from <code>settings.fctLifetime</code>.</td></tr>
             <tr><td><code>active</code></td><td>bool</td><td>false</td><td>Whether this slot is currently in use.</td></tr>
@@ -267,7 +267,7 @@ fctManager.Render(settings)
 float dx = cos(dirAngle) * distance;
 float dy = sin(dirAngle) * distance;
 
-float arcT = sin(PI * t);  // peaks at t=0.5, returns to 0 at t=1.0
+float arcT = sin(PI_F * t);  // peaks at t=0.5, returns to 0 at t=1.0
 float perpX = -sin(dirAngle) * arcAmount * arcT;
 float perpY =  cos(dirAngle) * arcAmount * arcT;
 
@@ -400,7 +400,7 @@ float scale = POP_START_SCALE + (1.0f - POP_START_SCALE) * EaseOutQuad(popT);
 float dx = cos(dirAngle) * distance;
 float dy = sin(dirAngle) * distance;
 
-float arcT = sin(PI * t);
+float arcT = sin(PI_F * t);
 float perpX = -sin(dirAngle) * arcAmount * arcT;
 float perpY =  cos(dirAngle) * arcAmount * arcT;
 
@@ -433,6 +433,7 @@ if (t > FADE_START)
         <thead><tr><th>Constant</th><th>Value</th><th>Description</th></tr></thead>
         <tbody>
             <tr><td><code>MAX_ENTRIES</code></td><td>64</td><td>Ring buffer capacity</td></tr>
+            <tr><td><code>PI_F</code></td><td>3.14159265f</td><td>Pi constant (<code>static constexpr float</code>) used for arc sine calculations</td></tr>
             <tr><td><code>POP_DURATION</code></td><td>0.3s</td><td>Duration of the pop-in scale animation</td></tr>
             <tr><td><code>POP_START_SCALE</code></td><td>1.4x</td><td>Initial enlarged scale factor</td></tr>
             <tr><td><code>FADE_START</code></td><td>0.6</td><td>Fraction of lifetime at which fade begins (60%)</td></tr>
@@ -495,8 +496,12 @@ engine.fctManager.Render(engine.settings);</code></pre>
 
     <p><code>Update(dt)</code> advances the <code>lifetime</code> of every active entry by
     <code>dt</code> seconds. Entries whose lifetime exceeds <code>maxLifetime</code> are
-    deactivated. The spawn angle slot map is also cleaned: spawns with no remaining active
-    entries have their slot index removed, so the directional spread resets for the next burst
+    deactivated. The spawn angle slot map is also cleaned using an optimized approach: a
+    <code>std::unordered_set&lt;int&gt;</code> of active spawn IDs is built in a single
+    pass over the entries (O(N)), then each spawn in <code>m_spawnAngleSlot</code> is
+    checked against the set (O(S)). This replaces the earlier O(S*N) nested loop that
+    rescanned all entries for every spawn slot. Spawns with no remaining active entries
+    have their slot index removed, so the directional spread resets for the next burst
     of hits on that spawn.</p>
 
     <p><code>Render(settings)</code> iterates all active entries and for each one:</p>
@@ -739,17 +744,22 @@ engine.fctManager.Render(engine.settings);</code></pre>
 
     <h3>Icon ID Ranges</h3>
 
+    <p>Icon ID boundaries are defined as named constants in <code>MyDPSData.h</code>
+    to avoid magic numbers throughout the codebase:</p>
+
     <table>
-        <thead><tr><th>Range</th><th>Source Texture</th><th>Cell Calculation</th></tr></thead>
+        <thead><tr><th>Range</th><th>Constant</th><th>Source Texture</th><th>Cell Calculation</th></tr></thead>
         <tbody>
-            <tr><td>0 &ndash; 499</td><td><code>A_SpellGems</code></td><td>cell = iconID</td></tr>
-            <tr><td>500+</td><td><code>A_DragItem</code></td><td>cell = iconID - 500</td></tr>
+            <tr><td>0 &ndash; 499</td><td><code>FCT_MAX_SPELL_ICON</code> (499)</td><td><code>A_SpellGems</code></td><td>cell = iconID</td></tr>
+            <tr><td>500+</td><td><code>FCT_ITEM_ICON_OFFSET</code> (500)</td><td><code>A_DragItem</code></td><td>cell = iconID - <code>FCT_ITEM_ICON_OFFSET</code></td></tr>
         </tbody>
     </table>
 
-    <p>During render, if an entry's icon ID is 500 or greater, it is drawn using
-    <code>m_pItemIconAnim</code> with cell index <code>id - 500</code>. Otherwise it uses
-    <code>m_pSpellIconAnim</code> directly. The FCTManager loads both
+    <p>During render, if an entry's icon ID is <code>FCT_ITEM_ICON_OFFSET</code> or
+    greater, it is drawn using <code>m_pItemIconAnim</code> with cell index
+    <code>id - FCT_ITEM_ICON_OFFSET</code>. Otherwise it uses
+    <code>m_pSpellIconAnim</code> directly. The maximum valid item icon ID is
+    <code>FCT_MAX_ITEM_ICON</code> (12599). The FCTManager loads both
     <code>A_SpellGems</code> and <code>A_DragItem</code> animations at initialization.</p>
 
     <h3>Icon Picker Window</h3>
@@ -758,8 +768,9 @@ engine.fctManager.Render(engine.settings);</code></pre>
     the FCT type table. It provides a visual grid for selecting an icon.</p>
 
     <ul>
-        <li><strong>Tabs:</strong> Spell and Item tabs switch between A_SpellGems (IDs 0-499)
-        and A_DragItem (IDs 500+) icon sets.</li>
+        <li><strong>Tabs:</strong> Spell and Item tabs switch between A_SpellGems
+        (IDs 0&ndash;<code>FCT_MAX_SPELL_ICON</code>) and A_DragItem
+        (IDs <code>FCT_ITEM_ICON_OFFSET</code>+) icon sets.</li>
         <li><strong>Pagination:</strong> 500 icons per page with forward/back navigation.</li>
         <li><strong>Scale slider:</strong> Adjusts icon display size in the picker from 0.5x
         to 3.0x for easier browsing of small icons.</li>
@@ -822,16 +833,17 @@ heal=0</code></pre>
 
     <ul>
         <li><code>m_pSpellIconAnim</code> &mdash; loaded from <code>A_SpellGems</code>,
-        provides spell icon cells (IDs 0&ndash;499).</li>
+        provides spell icon cells (IDs 0&ndash;<code>FCT_MAX_SPELL_ICON</code>).</li>
         <li><code>m_pItemIconAnim</code> &mdash; loaded from <code>A_DragItem</code>,
-        provides item icon cells (IDs 500+, rendered as cell = id - 500).</li>
+        provides item icon cells (IDs <code>FCT_ITEM_ICON_OFFSET</code>+, rendered as
+        cell = id - <code>FCT_ITEM_ICON_OFFSET</code>).</li>
     </ul>
 
     <p>During render, the icon draw logic checks the resolved icon ID:</p>
 
-    <pre><code>if (iconID >= 500)
+    <pre><code>if (iconID >= FCT_ITEM_ICON_OFFSET)
 {
-    m_pItemIconAnim->SetCurCell(iconID - 500);
+    m_pItemIconAnim->SetCurCell(iconID - FCT_ITEM_ICON_OFFSET);
     DrawTextureAnimation(m_pItemIconAnim, ...);
 }
 else

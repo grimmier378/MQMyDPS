@@ -16,15 +16,6 @@ static MyDPSRenderer s_renderer;
 static void MyDPSCommand(PlayerClient*, const char* szLine);
 static void DrawMyDPS_MQSettingsPanel();
 
-static std::string FormatNumber(int64_t value)
-{
-	if (value >= 1000000)
-		return fmt::format("{:.1f}m", value / 1000000.0);
-	if (value >= 1000)
-		return fmt::format("{:.1f}k", value / 1000.0);
-	return fmt::format("{}", value);
-}
-
 PLUGIN_API void InitializePlugin()
 {
 	g_dpsEngine = new MyDPSEngine();
@@ -277,8 +268,10 @@ void MyDPSEngine::LoadCharacterSettings()
 	char buf[64] = {};
 	GetPrivateProfileString("Options", "FontScale", "1.0", buf, sizeof(buf), path);
 	settings.fontScale = static_cast<float>(atof(buf));
+	if (settings.fontScale < 0.5f || settings.fontScale > 2.0f) settings.fontScale = 1.0f;
 	GetPrivateProfileString("Options", "SpamFontScale", "1.0", buf, sizeof(buf), path);
 	settings.spamFontScale = static_cast<float>(atof(buf));
+	if (settings.spamFontScale < 0.5f || settings.spamFontScale > 2.0f) settings.spamFontScale = 1.0f;
 	settings.themeIdx = GetPrivateProfileInt("Options", "ThemeIdx", 10, path);
 
 	showMainWindow = GetPrivateProfileBool("Windows", "ShowMain", true, path);
@@ -300,18 +293,25 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.fctUseSpellIcons  = GetPrivateProfileBool("FCT", "UseSpellIcons", false, path);
 	GetPrivateProfileString("FCT", "IconScale", "1.0", buf, sizeof(buf), path);
 	settings.fctIconScale = static_cast<float>(atof(buf));
+	if (settings.fctIconScale < 0.1f || settings.fctIconScale > 1.0f) settings.fctIconScale = 1.0f;
 	GetPrivateProfileString("FCT", "FloatDistance", "150.0", buf, sizeof(buf), path);
 	settings.fctFloatDistance = static_cast<float>(atof(buf));
+	if (settings.fctFloatDistance < 30.0f || settings.fctFloatDistance > 300.0f) settings.fctFloatDistance = 150.0f;
 	GetPrivateProfileString("FCT", "ArcScale", "1.0", buf, sizeof(buf), path);
 	settings.fctArcScale = static_cast<float>(atof(buf));
+	if (settings.fctArcScale < 0.0f || settings.fctArcScale > 3.0f) settings.fctArcScale = 1.0f;
 	GetPrivateProfileString("FCT", "Lifetime", "2.5", buf, sizeof(buf), path);
 	settings.fctLifetime = static_cast<float>(atof(buf));
+	if (settings.fctLifetime < 1.0f || settings.fctLifetime > 5.0f) settings.fctLifetime = 2.5f;
 	GetPrivateProfileString("FCT", "BaseFontSize", "24.0", buf, sizeof(buf), path);
 	settings.fctBaseFontSize = static_cast<float>(atof(buf));
+	if (settings.fctBaseFontSize < 12.0f || settings.fctBaseFontSize > 48.0f) settings.fctBaseFontSize = 24.0f;
 	GetPrivateProfileString("FCT", "FontScale", "1.5", buf, sizeof(buf), path);
 	settings.fctFontScale = static_cast<float>(atof(buf));
+	if (settings.fctFontScale < 0.5f || settings.fctFontScale > 3.0f) settings.fctFontScale = 1.5f;
 	GetPrivateProfileString("FCT", "ShadowOffset", "2.0", buf, sizeof(buf), path);
 	settings.fctShadowOffset = static_cast<float>(atof(buf));
+	if (settings.fctShadowOffset < 0.0f || settings.fctShadowOffset > 5.0f) settings.fctShadowOffset = 2.0f;
 	settings.fctBonePlayer = GetPrivateProfileInt("FCT", "BonePlayer", 11, path);
 	settings.fctBoneOther  = GetPrivateProfileInt("FCT", "BoneOther",  20, path);
 
@@ -321,7 +321,7 @@ void MyDPSEngine::LoadCharacterSettings()
 		GetPrivateProfileString("FCTIcons", info.key, "-1", buf, sizeof(buf), path);
 		int id = atoi(buf);
 		if (id >= 0 || id == FCT_ICON_NONE)
-			settings.fctIconOverrides[info.key] = { id, id >= 500 };
+			settings.fctIconOverrides[info.key] = { id, id >= FCT_ITEM_ICON_OFFSET };
 	}
 
 	for (auto& [key, color] : settings.damageColors)
@@ -495,10 +495,21 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			if (spawnID > 0)
 			{
 				auto& target = currentTargets[spawnID];
+				if (target.name.empty())
+				{
+					target.spawnID = spawnID;
+					target.name = record.targetName;
+					target.firstHit = record.timestamp;
+				}
 				target.critDamage += record.damage;
 				target.lastHit = record.timestamp;
 
 				auto& sessionTarget = cachedSessionTargets[spawnID];
+				if (sessionTarget.name.empty())
+				{
+					sessionTarget.spawnID = spawnID;
+					sessionTarget.name = record.targetName;
+				}
 				sessionTarget.critDamage += record.damage;
 			}
 

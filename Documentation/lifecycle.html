@@ -26,7 +26,7 @@
 <main class="content">
     <h1>Plugin Lifecycle</h1>
 
-    <p><em>Last Updated: 2026-04-20</em></p>
+    <p><em>Last Updated: 2026-04-23</em></p>
 
     <h2>What Is a MacroQuest Plugin Lifecycle?</h2>
 
@@ -247,6 +247,18 @@ pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);<
     <code>std::filesystem::create_directories()</code>. This per-server, per-character
     path means you can have different display preferences on different characters or
     servers without them interfering with each other.</p>
+
+    <div class="note">
+        <strong>Range clamping on load:</strong> All float settings read via
+        <code>atof()</code> in <code>LoadCharacterSettings()</code> are range-clamped
+        after parsing. If a value falls outside the slider range (e.g., from a corrupt
+        or hand-edited INI), it is reset to the default. The clamped settings and their
+        ranges are: fontScale [0.5, 2.0], spamFontScale [0.5, 2.0], fctLifetime
+        [1.0, 5.0], fctBaseFontSize [12.0, 48.0], fctFontScale [0.5, 3.0],
+        fctShadowOffset [0.0, 5.0], fctIconScale [0.1, 1.0], fctFloatDistance
+        [30.0, 300.0], and fctArcScale [0.0, 3.0]. This prevents out-of-range values
+        from causing rendering issues or slider misbehavior in the config UI.
+    </div>
 
     <h3>Load/Save Timing</h3>
 
