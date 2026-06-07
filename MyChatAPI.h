@@ -1,3 +1,12 @@
+//
+// MyChatAPI.h
+//
+// Vendored from grimmier378/MQMyChat (MyChatAPI.h). MQMyDPS only needs this header
+// to talk to a loaded MQMyChat via GetPluginInterface("MQMyChat"); there is no link
+// dependency. Do NOT edit by hand -- refresh with Update-MyChatAPI.ps1.
+//
+// Upstream: https://github.com/grimmier378/MQMyChat (branch main)
+//
 #pragma once
 
 #include <mq/Plugin.h>
@@ -8,6 +17,8 @@ namespace mqmychat
 {
 
 constexpr int MQMYCHAT_API_VERSION = 1;
+
+constexpr MQColor MQMYCHAT_DEFAULT_COLOR{ 240, 240, 240 };
 
 class ChatAPI : public mq::PluginInterface
 {
@@ -25,7 +36,7 @@ public:
 
 	bool Send(std::string_view channel, std::string_view message)
 	{
-		return Send(channel, message, MQColor(240, 240, 240));
+		return Send(channel, message, MQMYCHAT_DEFAULT_COLOR);
 	}
 };
 
