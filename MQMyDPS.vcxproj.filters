@@ -10,18 +10,27 @@
     <Filter Include="Resource Files">
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe</Extensions>
     </Filter>
+    <Filter Include="Proto">
+      <Extensions>proto</Extensions>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MQMyDPS.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="MyDPSParser.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MyDPSRenderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MyDPSTLO.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Proto\mydps.pb.cc">
+      <Filter>Proto</Filter>
+    </ClCompile>
+    <ClCompile Include="MyDPSActors.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MyDPSPatternEngine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -33,9 +42,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MyDPSData.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MyDPSParser.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MyDPSRenderer.h">
@@ -50,6 +56,21 @@
     <ClInclude Include="Theme.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Proto\mydps.pb.h">
+      <Filter>Proto</Filter>
+    </ClInclude>
+    <ClInclude Include="MyDPSActors.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MyChatAPI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MyDPSPatternEngine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="json.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MQMyDPS.rc">
@@ -58,5 +79,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProtocolBuffer Include="Proto\mydps.proto">
+      <Filter>Source Files</Filter>
+    </ProtocolBuffer>
   </ItemGroup>
 </Project>

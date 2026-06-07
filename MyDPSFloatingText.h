@@ -61,7 +61,9 @@ inline const char* GetBoneLabelByIndex(int boneIndex)
 	for (const auto& b : GetFCTBoneList())
 	{
 		if (b.index == boneIndex)
+		{
 			return b.label;
+		}
 	}
 	return "Unknown";
 }
@@ -161,18 +163,30 @@ inline bool FCTManager::IsTypeEnabled(DamageType type, const MyDPSSettings& sett
 inline void FCTManager::AddEntry(const DamageRecord& record, const MyDPSSettings& settings)
 {
 	if (!settings.showFCT)
+	{
 		return;
+	}
 	if (record.targetSpawnID <= 0)
+	{
 		return;
+	}
 	if (record.isMiss)
+	{
 		return;
+	}
 	if (record.damage <= 0)
+	{
 		return;
+	}
 	if (!IsTypeEnabled(record.type, settings))
+	{
 		return;
+	}
 
 	if (m_entries.empty())
+	{
 		m_entries.resize(MAX_ENTRIES);
+	}
 
 	FCTEntry& entry = m_entries[m_nextSlot];
 	m_nextSlot = (m_nextSlot + 1) % MAX_ENTRIES;
@@ -184,33 +198,43 @@ inline void FCTManager::AddEntry(const DamageRecord& record, const MyDPSSettings
 	entry.iconCellID  = record.spellIconID;
 
 	if (record.type == DamageType::DirectHeal || record.type == DamageType::CritHeal)
+	{
 		entry.displayText = fmt::format("+{}", FormatNumber(record.damage));
+	}
 	else if (record.type == DamageType::HitBy || record.type == DamageType::HitByNonMelee)
+	{
 		entry.displayText = fmt::format("-{}", FormatNumber(record.damage));
+	}
 	else
+	{
 		entry.displayText = FormatNumber(record.damage);
+	}
 
 	const char* colorKey = DamageTypeToColorKey(record.type);
 	if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+	{
 		colorKey = "pet";
+	}
 	auto it = settings.damageColors.find(colorKey);
 	if (record.type == DamageType::Melee && settings.fctDistinctMelee && !record.attackVerb.empty())
 	{
 		auto verbIt = settings.damageColors.find(record.attackVerb);
 		if (verbIt != settings.damageColors.end())
+		{
 			it = verbIt;
+		}
 	}
 	entry.color = (it != settings.damageColors.end()) ? it->second : ImVec4(1, 1, 1, 1);
 
 	static constexpr float angleSlots[NUM_ANGLE_SLOTS] = {
-		-1.5708f,            // -90°   straight up
-		-1.1781f,            // -67.5° up-right
-		-1.9635f,            // -112.5° up-left
-		-0.7854f,            // -45°   diagonal right
-		-2.3562f,            // -135°  diagonal left
-		-0.5236f,            // -30°   steep right
-		-2.6180f,            // -150°  steep left
-		-1.3744f,            // -78.75° slight right of up
+		-1.5708f,
+		-1.1781f,
+		-1.9635f,
+		-0.7854f,
+		-2.3562f,
+		-0.5236f,
+		-2.6180f,
+		-1.3744f,
 	};
 
 	int& slot = m_spawnAngleSlot[record.targetSpawnID];
@@ -227,26 +251,36 @@ inline void FCTManager::Update(float deltaTime)
 	for (auto& entry : m_entries)
 	{
 		if (!entry.active)
+		{
 			continue;
+		}
 
 		entry.lifetime += deltaTime;
 		if (entry.lifetime >= entry.maxLifetime)
+		{
 			entry.active = false;
+		}
 	}
 
 	std::unordered_set<int> activeSpawns;
 	for (const auto& entry : m_entries)
 	{
 		if (entry.active)
+		{
 			activeSpawns.insert(entry.spawnID);
+		}
 	}
 
 	for (auto it = m_spawnAngleSlot.begin(); it != m_spawnAngleSlot.end();)
 	{
 		if (activeSpawns.count(it->first) == 0)
+		{
 			it = m_spawnAngleSlot.erase(it);
+		}
 		else
+		{
 			++it;
+		}
 	}
 }
 
@@ -262,11 +296,15 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 {
 	PlayerClient* pSpawn = GetSpawnByID(spawnID);
 	if (!pSpawn)
+	{
 		return false;
+	}
 
 	CCamera* camera = static_cast<eqlib::CCamera*>(pDisplay->pCamera);
 	if (!camera)
+	{
 		return false;
+	}
 
 	glm::vec3 worldPos;
 
@@ -292,7 +330,9 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 		camera->worldToEyeCoef[2][2]));
 
 	if (Ez <= 0.0f)
+	{
 		return false;
+	}
 
 	float Ex = glm::dot(worldPos, camera->worldToEyeXAxisCot);
 	float Ey = glm::dot(worldPos, camera->worldToEyeYAxisCotAspect);
@@ -307,25 +347,35 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 inline void FCTManager::Render(const MyDPSSettings& settings)
 {
 	if (!settings.showFCT)
+	{
 		return;
+	}
 
 	ImDrawList* drawList = ImGui::GetBackgroundDrawList();
 	ImFont* font = ImGui::GetFont();
 	if (!font || !drawList)
+	{
 		return;
+	}
 
 	if (settings.showFCT_Icons)
+	{
 		EnsureIconAnimation();
+	}
 
 	for (const auto& entry : m_entries)
 	{
 		if (!entry.active)
+		{
 			continue;
+		}
 
 		float screenX = 0, screenY = 0;
 		if (!ProjectSpawnToScreen(entry.spawnID, screenX, screenY,
 				settings.fctBonePlayer, settings.fctBoneOther))
+		{
 			continue;
+		}
 
 		float t = entry.lifetime / entry.maxLifetime;
 

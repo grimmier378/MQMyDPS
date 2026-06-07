@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MyDPSActors.h"
+
 #include <mq/Plugin.h>
 
 #include <chrono>
@@ -15,6 +17,7 @@ public:
 
 	void RenderCombatSpam(MyDPSEngine& engine);
 	void RenderMainWindow(MyDPSEngine& engine);
+	void RenderPopOutWindows(MyDPSEngine& engine);
 	void RenderConfigWindow(MyDPSEngine& engine);
 	void RenderFloatingText(MyDPSEngine& engine);
 	void RenderIconPicker(MyDPSEngine& engine);
@@ -27,6 +30,20 @@ private:
 		bool autoScroll = true;
 	};
 
+	enum DpsTab
+	{
+		TAB_CURRENT = 0,
+		TAB_HISTORY,
+		TAB_TARGETS,
+		TAB_HEALING,
+		TAB_GRAPHS,
+		TAB_GROUP,
+		TAB_COUNT
+	};
+
+	static const char* TabName(int tab);
+	void RenderTabBody(MyDPSEngine& engine, int tab);
+
 	void RenderCurrentBattle(MyDPSEngine& engine);
 	void RenderHistory(MyDPSEngine& engine);
 	void RenderTargets(MyDPSEngine& engine);
@@ -38,12 +55,21 @@ private:
 	void RebuildGraphCache(MyDPSEngine& engine);
 	void RenderPieChart(MyDPSEngine& engine);
 	void RenderHealing(MyDPSEngine& engine);
+
+	void RenderPeerLiveMeter(MyDPSEngine& engine);
+	void RenderGroup(MyDPSEngine& engine);
+	void RenderGroupLive(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers);
+	void RenderGroupHistory(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers);
+	void RenderGroupGraphs(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers);
+
 	void EnsurePickerAnimations();
 
 	bool m_showDpsGraph = true;
 	bool m_showDmgGraph = true;
 	bool m_showBarChart = true;
 	bool m_showPieChart = false;
+
+	bool m_tabPopOut[TAB_COUNT] = {};
 
 	GraphScrollState m_dpsScroll;
 	GraphScrollState m_dmgScroll;

@@ -8,12 +8,22 @@
 #include <vector>
 #include <fmt/format.h>
 
+inline int64_t NowEpochMs()
+{
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 inline std::string FormatNumber(int64_t value)
 {
 	if (value >= 1000000)
+	{
 		return fmt::format("{:.1f}m", value / 1000000.0);
+	}
 	if (value >= 1000)
+	{
 		return fmt::format("{:.1f}k", value / 1000.0);
+	}
 	return fmt::format("{}", value);
 }
 
@@ -86,7 +96,9 @@ struct TargetDamageData
 	float GetDurationSeconds() const
 	{
 		if (hitCount == 0)
+		{
 			return 0.0f;
+		}
 		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(lastHit - firstHit);
 		return std::max(1.0f, elapsed.count() / 1000.0f);
 	}
@@ -117,6 +129,7 @@ struct BattleData
 	float   durationSeconds = 0.0f;
 	float   dps             = 0.0f;
 	float   avgDamage       = 0.0f;
+	int64_t startTimeMs     = 0;
 	std::unordered_map<int, TargetDamageData> targets;
 	std::unordered_map<std::string, HealTargetData> healTargets;
 };
@@ -181,6 +194,10 @@ struct MyDPSSettings
 	bool  spamClickThrough = true;
 	int   displayTime      = 10;
 	int   battleEndDelay   = 10;
+
+	bool  showPeers        = true;
+	int   peerFilterMode   = 0;
+	bool  debugMode        = false;
 	float fontScale        = 1.0f;
 	float spamFontScale    = 1.0f;
 	int   themeIdx         = 10;
@@ -206,8 +223,8 @@ struct MyDPSSettings
 	float fctBaseFontSize   = 24.0f;
 	float fctFontScale      = 1.5f;
 	float fctShadowOffset   = 2.0f;
-	int   fctBonePlayer     = 11;   // eBoneChest
-	int   fctBoneOther      = 20;   // eBoneLegs
+	int   fctBonePlayer     = 11;
+	int   fctBoneOther      = 20;
 
 	std::unordered_map<std::string, ImVec4> damageColors;
 	std::unordered_map<std::string, FCTIconOverride> fctIconOverrides;

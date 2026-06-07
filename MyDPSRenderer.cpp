@@ -1,5 +1,6 @@
 #include "MyDPSRenderer.h"
 #include "MQMyDPS.h"
+#include "MyDPSPatternEngine.h"
 #include "Theme.h"
 
 #include <mq/Plugin.h>
@@ -9,6 +10,8 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <ctime>
+#include <utility>
 
 MyDPSRenderer::~MyDPSRenderer()
 {
@@ -21,7 +24,9 @@ MyDPSRenderer::~MyDPSRenderer()
 void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 {
 	if (!engine.showCombatSpam || !engine.tracking)
+	{
 		return;
+	}
 
 	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
 
@@ -32,7 +37,9 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoFocusOnAppearing;
 	if (engine.settings.spamClickThrough)
+	{
 		flags |= ImGuiWindowFlags_NoInputs;
+	}
 
 	bool wasOpen = engine.showCombatSpam;
 	if (ImGui::Begin(windowName.c_str(), &engine.showCombatSpam, flags))
@@ -46,30 +53,48 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 			const auto& rec = *it;
 			auto age = std::chrono::duration_cast<std::chrono::seconds>(now - rec.timestamp).count();
 			if (age > engine.settings.displayTime)
+			{
 				continue;
+			}
 
 			const char* colorKey;
 			if (rec.type == DamageType::PetMelee || rec.type == DamageType::PetNonMelee)
+			{
 				colorKey = "pet";
+			}
 			else if (rec.type == DamageType::Melee)
+			{
 				colorKey = rec.attackVerb.c_str();
+			}
 			else
+			{
 				colorKey = DamageTypeToColorKey(rec.type);
+			}
 
 			ImVec4 color(1, 1, 1, 1);
 			auto colorIt = engine.settings.damageColors.find(colorKey);
 			if (colorIt != engine.settings.damageColors.end())
+			{
 				color = colorIt->second;
+			}
 
 			std::string text;
 			if (engine.settings.showType && engine.settings.showTarget)
+			{
 				text = fmt::format("[{}] {}: {}", rec.attackVerb, rec.targetName, rec.isMiss ? "MISS" : FormatNumber(rec.damage));
+			}
 			else if (engine.settings.showType)
+			{
 				text = fmt::format("[{}] {}", rec.attackVerb, rec.isMiss ? "MISS" : FormatNumber(rec.damage));
+			}
 			else if (engine.settings.showTarget)
+			{
 				text = fmt::format("{}: {}", rec.targetName, rec.isMiss ? "MISS" : FormatNumber(rec.damage));
+			}
 			else
+			{
 				text = rec.isMiss ? "MISS" : FormatNumber(rec.damage);
+			}
 
 			ImGui::TextColored(color, "%s", text.c_str());
 		}
@@ -80,13 +105,17 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 	ImGuiTheme::ResetTheme(oldStyle);
 
 	if (wasOpen && !engine.showCombatSpam)
+	{
 		engine.SaveCharacterSettings();
+	}
 }
 
 void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 {
 	if (!engine.showMainWindow)
+	{
 		return;
+	}
 
 	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
 
@@ -104,7 +133,9 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 			if (engine.tracking)
 			{
 				if (ImGui::MenuItem(ICON_MD_STOP " Stop"))
+				{
 					engine.tracking = false;
+				}
 			}
 			else
 			{
@@ -112,15 +143,21 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 				{
 					engine.tracking = true;
 					if (engine.sessionDamage == 0)
+					{
 						engine.sessionStartTime = std::chrono::steady_clock::now();
+					}
 				}
 			}
 
 			if (ImGui::MenuItem(ICON_MD_DELETE " Reset"))
+			{
 				engine.ResetAll();
+			}
 
 			if (ImGui::MenuItem(ICON_MD_SETTINGS " Config"))
+			{
 				engine.showConfigWindow = !engine.showConfigWindow;
+			}
 
 			ImGui::Separator();
 
@@ -129,53 +166,43 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 			ImGui::TextColored(dpsColor, "DPS: %.1f", engine.GetSessionDPS());
 
 			if (engine.inCombat)
+			{
 				ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "[COMBAT]");
+			}
 
 			ImGui::EndMenuBar();
 		}
 
 		if (ImGui::BeginTabBar("DPSTabs"))
 		{
-			if (ImGui::BeginTabItem("Current Battle"))
+			for (int t = 0; t < TAB_COUNT; ++t)
 			{
-				if (ImGui::BeginChild("##BattleChild", ImVec2(0, 0), ImGuiChildFlags_None))
-					RenderCurrentBattle(engine);
-				ImGui::EndChild();
-				ImGui::EndTabItem();
-			}
+				if (m_tabPopOut[t])
+				{
+					continue;
+				}
 
-			if (ImGui::BeginTabItem("History"))
-			{
-				if (ImGui::BeginChild("##HistoryChild", ImVec2(0, 0), ImGuiChildFlags_None))
-					RenderHistory(engine);
-				ImGui::EndChild();
-				ImGui::EndTabItem();
-			}
+				bool open = ImGui::BeginTabItem(TabName(t));
+				if (ImGui::BeginPopupContextItem())
+				{
+					if (ImGui::MenuItem("Pop Out"))
+					{
+						m_tabPopOut[t] = true;
+					}
+					ImGui::EndPopup();
+				}
 
-			if (ImGui::BeginTabItem("Targets"))
-			{
-				if (ImGui::BeginChild("##TargetsChild", ImVec2(0, 0), ImGuiChildFlags_None))
-					RenderTargets(engine);
-				ImGui::EndChild();
-				ImGui::EndTabItem();
-			}
-
-			if (ImGui::BeginTabItem("Healing"))
-			{
-				if (ImGui::BeginChild("##HealingChild", ImVec2(0, 0), ImGuiChildFlags_None))
-					RenderHealing(engine);
-				ImGui::EndChild();
-				ImGui::EndTabItem();
-			}
-
-			if (ImGui::BeginTabItem("Graphs"))
-			{
-				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, ImGui::GetStyle().WindowPadding.y));
-				if (ImGui::BeginChild("##GraphsChild", ImVec2(0, 0), ImGuiChildFlags_Borders))
-					RenderGraphs(engine);
-				ImGui::EndChild();
-				ImGui::PopStyleVar();
-				ImGui::EndTabItem();
+				if (open)
+				{
+					ImGui::PushID(t);
+					if (ImGui::BeginChild("##TabChild", ImVec2(0, 0), ImGuiChildFlags_None))
+					{
+						RenderTabBody(engine, t);
+					}
+					ImGui::EndChild();
+					ImGui::PopID();
+					ImGui::EndTabItem();
+				}
 			}
 
 			ImGui::EndTabBar();
@@ -187,11 +214,94 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 	ImGuiTheme::ResetTheme(oldStyle);
 
 	if (wasOpen && !engine.showMainWindow)
+	{
 		engine.SaveCharacterSettings();
+	}
+}
+
+const char* MyDPSRenderer::TabName(int tab)
+{
+	switch (tab)
+	{
+	case TAB_CURRENT: return "Current Battle";
+	case TAB_HISTORY: return "History";
+	case TAB_TARGETS: return "Targets";
+	case TAB_HEALING: return "Healing";
+	case TAB_GRAPHS:  return "Graphs";
+	case TAB_GROUP:   return "Group";
+	default:          return "?";
+	}
+}
+
+void MyDPSRenderer::RenderTabBody(MyDPSEngine& engine, int tab)
+{
+	switch (tab)
+	{
+	case TAB_CURRENT: RenderCurrentBattle(engine); break;
+	case TAB_HISTORY: RenderHistory(engine); break;
+	case TAB_TARGETS: RenderTargets(engine); break;
+	case TAB_HEALING: RenderHealing(engine); break;
+	case TAB_GRAPHS:  RenderGraphs(engine); break;
+	case TAB_GROUP:   RenderGroup(engine); break;
+	default: break;
+	}
+}
+
+void MyDPSRenderer::RenderPopOutWindows(MyDPSEngine& engine)
+{
+	bool anyOpen = false;
+	for (int t = 0; t < TAB_COUNT; ++t)
+	{
+		if (m_tabPopOut[t])
+		{
+			anyOpen = true;
+			break;
+		}
+	}
+	if (!anyOpen)
+	{
+		return;
+	}
+
+	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
+
+	for (int t = 0; t < TAB_COUNT; ++t)
+	{
+		if (!m_tabPopOut[t])
+		{
+			continue;
+		}
+
+		std::string winName = fmt::format("MyDPS - {}##MQMyDPS_PopOut_{}_{}", TabName(t), t, engine.charName);
+		bool open = true;
+		ImGui::SetNextWindowSize(ImVec2(520, 360), ImGuiCond_FirstUseEver);
+		if (ImGui::Begin(winName.c_str(), &open, ImGuiWindowFlags_None))
+		{
+			ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * engine.settings.fontScale);
+			ImGui::PushID(1000 + t);
+			if (ImGui::BeginChild("##PopTabChild", ImVec2(0, 0), ImGuiChildFlags_None))
+			{
+				RenderTabBody(engine, t);
+			}
+			ImGui::EndChild();
+			ImGui::PopID();
+			ImGui::PopFont();
+		}
+		ImGui::End();
+
+		if (!open)
+		{
+			m_tabPopOut[t] = false;
+		}
+	}
+
+	ImGuiTheme::ResetTheme(oldStyle);
 }
 
 void MyDPSRenderer::RenderCurrentBattle(MyDPSEngine& engine)
 {
+	RenderPeerLiveMeter(engine);
+
 	if (!engine.inCombat && engine.battleDamage == 0)
 	{
 		ImGui::TextDisabled("No active battle. Attack something to begin.");
@@ -210,9 +320,13 @@ void MyDPSRenderer::RenderCurrentBattle(MyDPSEngine& engine)
 	};
 
 	if (engine.inCombat)
+	{
 		ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Status: In Combat");
+	}
 	else
+	{
 		ImGui::TextColored(C("duration"), "Status: Combat Ending...");
+	}
 	ImGui::Separator();
 
 	struct StatEntry { const char* label; std::string value; ImVec4 color; };
@@ -349,7 +463,10 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 				b.battleNumber, static_cast<int>(b.targets.size()), static_cast<int>(b.healTargets.size()));
 
 			int64_t bMelee = b.totalDamage - b.nonMeleeDamage - b.dotDamage - b.petDamage - b.dsDamage;
-			if (bMelee < 0) bMelee = 0;
+			if (bMelee < 0)
+			{
+				bMelee = 0;
+			}
 
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("dps"),       "%.1f", b.dps);
 			ImGui::TableNextColumn(); ImGui::TextColored(Clr("duration"),  "%.0fs", b.durationSeconds);
@@ -383,7 +500,10 @@ void MyDPSRenderer::RenderHistory(MyDPSEngine& engine)
 				for (const auto& [tgtID, tgt] : b.targets)
 				{
 					int64_t tMelee = tgt.totalDamage - tgt.nonMeleeDamage - tgt.dotDamage - tgt.petDamage - tgt.dsDamage;
-					if (tMelee < 0) tMelee = 0;
+					if (tMelee < 0)
+					{
+						tMelee = 0;
+					}
 
 					std::string tgtLabel = tgt.spawnID > 0
 						? fmt::format("  {} (#{})", tgt.name, tgt.spawnID)
@@ -525,16 +645,24 @@ void MyDPSRenderer::RenderGraphs(MyDPSEngine& engine)
 	RebuildGraphCache(engine);
 
 	if (m_showDpsGraph)
+	{
 		RenderDPSGraph(engine);
+	}
 
 	if (m_showDmgGraph)
+	{
 		RenderDamageGraph(engine);
+	}
 
 	if (m_showBarChart)
+	{
 		RenderBarChart(engine);
+	}
 
 	if (m_showPieChart)
+	{
 		RenderPieChart(engine);
+	}
 }
 
 static constexpr int GRAPH_WINDOW   = 50;
@@ -544,7 +672,9 @@ void MyDPSRenderer::RebuildGraphCache(MyDPSEngine& engine)
 {
 	int totalBattles = static_cast<int>(engine.battleHistory.size());
 	if (totalBattles == m_cachedBattleCount)
+	{
 		return;
+	}
 
 	m_cachedBattleCount = totalBattles;
 	int cacheCount = std::min(totalBattles, GRAPH_MAX_BACK);
@@ -568,7 +698,10 @@ void MyDPSRenderer::RebuildGraphCache(MyDPSEngine& engine)
 		m_gHeals[i]     = static_cast<float>(b.directHeals);
 		m_gCritHeals[i] = static_cast<float>(b.critHeals);
 		m_gMelee[i]     = static_cast<float>(b.totalDamage) - m_gDots[i] - m_gDD[i] - m_gPets[i] - static_cast<float>(b.dsDamage);
-		if (m_gMelee[i] < 0) m_gMelee[i] = 0;
+		if (m_gMelee[i] < 0)
+		{
+			m_gMelee[i] = 0;
+		}
 	}
 }
 
@@ -578,7 +711,9 @@ void MyDPSRenderer::RenderScrollBar(const char* id, MyDPSRenderer::GraphScrollSt
 	int prev = scroll.offset;
 
 	if (scroll.autoScroll)
+	{
 		scroll.offset = maxOffset;
+	}
 
 	scroll.offset = std::clamp(scroll.offset, 0, maxOffset);
 
@@ -592,7 +727,9 @@ void MyDPSRenderer::RenderScrollBar(const char* id, MyDPSRenderer::GraphScrollSt
 			fmt::format("Battles {}-{} of {}", startIdx + 1, startIdx + count, totalBattles).c_str());
 
 		if (scroll.offset != prev)
+		{
 			scroll.autoScroll = (scroll.offset >= maxOffset);
+		}
 	}
 }
 
@@ -600,7 +737,9 @@ void MyDPSRenderer::RenderDPSGraph(MyDPSEngine& engine)
 {
 	int totalBattles = static_cast<int>(engine.battleHistory.size());
 	if (totalBattles == 0)
+	{
 		return;
+	}
 
 	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
 	RenderScrollBar("##DPSScroll", m_dpsScroll, totalBattles, maxBack);
@@ -608,7 +747,9 @@ void MyDPSRenderer::RenderDPSGraph(MyDPSEngine& engine)
 	int startIdx = m_dpsScroll.offset;
 	int count = std::min(GRAPH_WINDOW, m_gTotalCached - m_dpsScroll.offset);
 	if (count <= 0)
+	{
 		return;
+	}
 
 	float xMin = m_gNums[startIdx] - 0.5f;
 	float xMax = m_gNums[startIdx + count - 1] + 1.5f;
@@ -635,7 +776,9 @@ void MyDPSRenderer::RenderDamageGraph(MyDPSEngine& engine)
 {
 	int totalBattles = static_cast<int>(engine.battleHistory.size());
 	if (totalBattles == 0)
+	{
 		return;
+	}
 
 	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
 	RenderScrollBar("##DmgScroll", m_dmgScroll, totalBattles, maxBack);
@@ -643,7 +786,9 @@ void MyDPSRenderer::RenderDamageGraph(MyDPSEngine& engine)
 	int startIdx = m_dmgScroll.offset;
 	int count = std::min(GRAPH_WINDOW, m_gTotalCached - m_dmgScroll.offset);
 	if (count <= 0)
+	{
 		return;
+	}
 
 	float xMin = m_gNums[startIdx] - 0.5f;
 	float xMax = m_gNums[startIdx + count - 1] + 1.5f;
@@ -695,7 +840,9 @@ void MyDPSRenderer::RenderBarChart(MyDPSEngine& engine)
 {
 	int totalBattles = static_cast<int>(engine.battleHistory.size());
 	if (totalBattles == 0)
+	{
 		return;
+	}
 
 	int maxBack = std::min(totalBattles, GRAPH_MAX_BACK);
 	RenderScrollBar("##BarScroll", m_barScroll, totalBattles, maxBack);
@@ -703,7 +850,9 @@ void MyDPSRenderer::RenderBarChart(MyDPSEngine& engine)
 	int startIdx = m_barScroll.offset;
 	int count = std::min(GRAPH_WINDOW, m_gTotalCached - m_barScroll.offset);
 	if (count <= 0)
+	{
 		return;
+	}
 
 	float xMin = m_gNums[startIdx] - 0.5f;
 	float xMax = m_gNums[startIdx + count - 1] + 1.5f;
@@ -833,10 +982,511 @@ void MyDPSRenderer::RenderHealing(MyDPSEngine& engine)
 	}
 }
 
+namespace
+{
+struct EncounterChar
+{
+	const PeerRecord* peer = nullptr;
+	int64_t damage     = 0;
+	int64_t heals      = 0;
+	float   activeDurS = 0.0f;
+	int     battles    = 0;
+};
+
+struct Encounter
+{
+	int64_t startMs = 0;
+	int64_t endMs   = 0;
+	std::vector<EncounterChar> chars;
+
+	float DurationS() const { return std::max(1.0f, static_cast<float>(endMs - startMs) / 1000.0f); }
+};
+
+constexpr int64_t kEncounterGapToleranceMs = 5000;
+
+std::vector<Encounter> BuildEncounters(const std::vector<const PeerRecord*>& peers)
+{
+	std::vector<std::pair<const PeerRecord*, const PeerBattle*>> all;
+	for (const PeerRecord* p : peers)
+	{
+		for (const PeerBattle& b : p->battles)
+		{
+			if (b.startTimeMs > 0)
+			{
+				all.push_back({ p, &b });
+			}
+		}
+	}
+
+	std::sort(all.begin(), all.end(),
+		[](const std::pair<const PeerRecord*, const PeerBattle*>& a,
+		   const std::pair<const PeerRecord*, const PeerBattle*>& b)
+		{ return a.second->startTimeMs < b.second->startTimeMs; });
+
+	std::vector<Encounter> encs;
+	for (const auto& entry : all)
+	{
+		const PeerRecord* p = entry.first;
+		const PeerBattle* b = entry.second;
+		int64_t bStart = b->startTimeMs;
+		int64_t bEnd   = b->startTimeMs + static_cast<int64_t>(b->durationSeconds * 1000.0f);
+
+		if (encs.empty() || bStart > encs.back().endMs + kEncounterGapToleranceMs)
+		{
+			Encounter e;
+			e.startMs = bStart;
+			e.endMs   = bEnd;
+			encs.push_back(std::move(e));
+		}
+		else
+		{
+			encs.back().endMs = std::max(encs.back().endMs, bEnd);
+		}
+
+		Encounter& e = encs.back();
+		EncounterChar* ec = nullptr;
+		for (EncounterChar& c : e.chars)
+		{
+			if (c.peer == p)
+			{
+				ec = &c;
+				break;
+			}
+		}
+		if (!ec)
+		{
+			e.chars.push_back(EncounterChar{ p, 0, 0, 0.0f, 0 });
+			ec = &e.chars.back();
+		}
+		ec->damage     += b->totalDamage;
+		ec->heals      += b->directHeals;
+		ec->activeDurS += b->durationSeconds;
+		ec->battles    += 1;
+	}
+	return encs;
+}
+
+std::string FormatClock(int64_t ms)
+{
+	std::time_t t = static_cast<std::time_t>(ms / 1000);
+	std::tm tmv{};
+	localtime_s(&tmv, &t);
+	char buf[16] = {};
+	std::strftime(buf, sizeof(buf), "%H:%M:%S", &tmv);
+	return buf;
+}
+} // namespace
+
+void MyDPSRenderer::RenderPeerLiveMeter(MyDPSEngine& engine)
+{
+	if (!engine.settings.showPeers)
+	{
+		return;
+	}
+
+	auto peers = engine.actors.VisiblePeers(static_cast<PeerFilterMode>(engine.settings.peerFilterMode));
+	if (peers.size() <= 1)
+	{
+		return;
+	}
+
+	if (!ImGui::CollapsingHeader("Group Live DPS", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		return;
+	}
+
+	float width = ImGui::GetContentRegionAvail().x;
+	bool wide  = width > 380.0f;
+	bool wider = width > 560.0f;
+
+	int cols = 3 + (wide ? 3 : 0) + (wider ? 3 : 0);
+
+	if (ImGui::BeginTable("PeerLiveMeter", cols,
+		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp))
+	{
+		ImGui::TableSetupColumn("Player");
+		ImGui::TableSetupColumn("DPS");
+		ImGui::TableSetupColumn("Total");
+		if (wider)
+		{
+			ImGui::TableSetupColumn("Crit");
+			ImGui::TableSetupColumn("DoT");
+			ImGui::TableSetupColumn("Pet");
+		}
+		if (wide)
+		{
+			ImGui::TableSetupColumn("Hits");
+			ImGui::TableSetupColumn("Heals");
+			ImGui::TableSetupColumn("Status");
+		}
+		ImGui::TableHeadersRow();
+
+		for (const PeerRecord* p : peers)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::TextColored(p->color, "%s%s", p->character.c_str(), p->isSelf ? " (you)" : "");
+			ImGui::TableNextColumn(); ImGui::Text("%.1f", p->liveDPS);
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveTotal).c_str());
+			if (wider)
+			{
+				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveCrit).c_str());
+				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveDot).c_str());
+				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->livePet).c_str());
+			}
+			if (wide)
+			{
+				ImGui::TableNextColumn(); ImGui::Text("%d", p->liveHits);
+				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveHeals).c_str());
+				ImGui::TableNextColumn();
+				if (p->inCombat)
+				{
+					ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Combat");
+				}
+				else
+				{
+					ImGui::TextDisabled("-");
+				}
+			}
+		}
+		ImGui::EndTable();
+	}
+	ImGui::Separator();
+}
+
+void MyDPSRenderer::RenderGroup(MyDPSEngine& engine)
+{
+	ImGui::Checkbox("Show Peers", &engine.settings.showPeers);
+	ImGui::SameLine();
+	ImGui::TextDisabled("|");
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Filter:");
+	ImGui::SameLine(); ImGui::RadioButton("All", &engine.settings.peerFilterMode, 0);
+	ImGui::SameLine(); ImGui::RadioButton("Server", &engine.settings.peerFilterMode, 1);
+	ImGui::SameLine(); ImGui::RadioButton("Group", &engine.settings.peerFilterMode, 2);
+	ImGui::SameLine(); ImGui::RadioButton("Raid", &engine.settings.peerFilterMode, 3);
+	ImGui::Separator();
+
+	if (!engine.settings.showPeers)
+	{
+		ImGui::TextDisabled("Peer display disabled (broadcasting continues). Use /mydps peers to enable.");
+		return;
+	}
+
+	auto peers = engine.actors.VisiblePeers(static_cast<PeerFilterMode>(engine.settings.peerFilterMode));
+
+	if (ImGui::BeginTabBar("##GroupSub"))
+	{
+		if (ImGui::BeginTabItem("Live"))
+		{
+			if (ImGui::BeginChild("##GroupLiveChild", ImVec2(0, 0), ImGuiChildFlags_None))
+			{
+				RenderGroupLive(engine, peers);
+			}
+			ImGui::EndChild();
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("History"))
+		{
+			if (ImGui::BeginChild("##GroupHistChild", ImVec2(0, 0), ImGuiChildFlags_None))
+			{
+				RenderGroupHistory(engine, peers);
+			}
+			ImGui::EndChild();
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Graphs"))
+		{
+			if (ImGui::BeginChild("##GroupGraphChild", ImVec2(0, 0), ImGuiChildFlags_Borders))
+			{
+				RenderGroupGraphs(engine, peers);
+			}
+			ImGui::EndChild();
+			ImGui::EndTabItem();
+		}
+		ImGui::EndTabBar();
+	}
+}
+
+void MyDPSRenderer::RenderGroupLive(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers)
+{
+	if (peers.empty())
+	{
+		ImGui::TextDisabled("No peers detected.");
+		return;
+	}
+
+	if (ImGui::BeginTable("GroupLive", 11,
+		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
+		| ImGuiTableFlags_Hideable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_ScrollY))
+	{
+		ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_NoHide);
+		ImGui::TableSetupColumn("Class");
+		ImGui::TableSetupColumn("DPS");
+		ImGui::TableSetupColumn("Total");
+		ImGui::TableSetupColumn("Hits");
+		ImGui::TableSetupColumn("Crit");
+		ImGui::TableSetupColumn("DoT");
+		ImGui::TableSetupColumn("Pet");
+		ImGui::TableSetupColumn("Non-Melee");
+		ImGui::TableSetupColumn("Heals");
+		ImGui::TableSetupColumn("Status");
+		ImGui::TableHeadersRow();
+
+		for (const PeerRecord* p : peers)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::TextColored(p->color, "%s%s", p->character.c_str(), p->isSelf ? " (you)" : "");
+			ImGui::TableNextColumn(); ImGui::TextUnformatted(p->classShort.c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%.1f", p->liveDPS);
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveTotal).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%d", p->liveHits);
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveCrit).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveDot).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->livePet).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveNonMelee).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveHeals).c_str());
+			ImGui::TableNextColumn();
+			if (p->inCombat)
+			{
+				ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Combat");
+			}
+			else
+			{
+				ImGui::TextDisabled("-");
+			}
+		}
+		ImGui::EndTable();
+	}
+}
+
+void MyDPSRenderer::RenderGroupHistory(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers)
+{
+	if (peers.empty())
+	{
+		ImGui::TextDisabled("No peers detected.");
+		return;
+	}
+
+	std::vector<Encounter> encs = BuildEncounters(peers);
+	if (encs.empty())
+	{
+		ImGui::TextDisabled("No finalized battles yet.");
+		return;
+	}
+
+	if (ImGui::BeginTable("GroupHistory", 5,
+		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
+		| ImGuiTableFlags_Hideable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_ScrollY))
+	{
+		ImGui::TableSetupColumn("Encounter / Player", ImGuiTableColumnFlags_NoHide);
+		ImGui::TableSetupColumn("DPS");
+		ImGui::TableSetupColumn("Total Damage");
+		ImGui::TableSetupColumn("Duration");
+		ImGui::TableSetupColumn("Heals");
+		ImGui::TableHeadersRow();
+
+		auto renderEnc = [&](int encIndex, Encounter& e)
+		{
+			float durS = e.DurationS();
+			std::sort(e.chars.begin(), e.chars.end(),
+				[](const EncounterChar& a, const EncounterChar& b) { return a.damage > b.damage; });
+
+			int64_t sumDmg = 0;
+			int64_t sumHeals = 0;
+			int playerCount = 0;
+			for (const EncounterChar& c : e.chars)
+			{
+				if (c.damage > 0 || c.heals > 0)
+				{
+					sumDmg += c.damage;
+					sumHeals += c.heals;
+					++playerCount;
+				}
+			}
+
+			ImGui::PushID(encIndex);
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			bool expanded = ImGui::TreeNodeEx("##e", ImGuiTreeNodeFlags_SpanAvailWidth,
+				"%s  (%.0fs, %d players)", FormatClock(e.startMs).c_str(), durS, playerCount);
+			ImGui::TableNextColumn(); ImGui::TextDisabled("-");
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(sumDmg).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%.0fs", durS);
+			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(sumHeals).c_str());
+
+			if (expanded)
+			{
+				for (const EncounterChar& c : e.chars)
+				{
+					if (c.damage == 0 && c.heals == 0)
+					{
+						continue;
+					}
+
+					float cdps = c.activeDurS > 0.0f ? static_cast<float>(c.damage) / c.activeDurS : 0.0f;
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::TextColored(c.peer->color, "  %s%s",
+						c.peer->character.c_str(), c.peer->isSelf ? " (you)" : "");
+					ImGui::TableNextColumn(); ImGui::Text("%.1f", cdps);
+					ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(c.damage).c_str());
+					ImGui::TableNextColumn(); ImGui::Text("%.0fs", c.activeDurS);
+					ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(c.heals).c_str());
+				}
+				ImGui::TreePop();
+			}
+			ImGui::PopID();
+		};
+
+		if (engine.settings.sortNewest)
+		{
+			for (int i = static_cast<int>(encs.size()) - 1; i >= 0; --i)
+			{
+				renderEnc(i, encs[i]);
+			}
+		}
+		else
+		{
+			for (int i = 0; i < static_cast<int>(encs.size()); ++i)
+			{
+				renderEnc(i, encs[i]);
+			}
+		}
+
+		ImGui::EndTable();
+	}
+}
+
+void MyDPSRenderer::RenderGroupGraphs(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers)
+{
+	if (peers.empty())
+	{
+		ImGui::TextDisabled("No peer data.");
+		return;
+	}
+
+	ImGui::Text("Average (Session) DPS by Character");
+
+	std::vector<std::string> nameStore;
+	nameStore.reserve(peers.size());
+	std::vector<double> values;
+	for (const PeerRecord* p : peers)
+	{
+		if (p->sessionDPS <= 0.0f)
+		{
+			continue;
+		}
+		nameStore.push_back(p->isSelf ? (p->character + " (you)") : p->character);
+		values.push_back(static_cast<double>(p->sessionDPS));
+	}
+
+	if (!values.empty())
+	{
+		std::vector<const char*> labels;
+		labels.reserve(nameStore.size());
+		for (const std::string& s : nameStore)
+			labels.push_back(s.c_str());
+
+		if (ImPlot::BeginPlot("##AvgDpsPie", ImVec2(-1, 300), ImPlotFlags_Equal))
+		{
+			ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations, ImPlotAxisFlags_NoDecorations);
+			ImPlot::PlotPieChart(labels.data(), values.data(), static_cast<int>(values.size()),
+				0.5, 0.5, 0.4, "%.0f", 90.0);
+			ImPlot::EndPlot();
+		}
+	}
+	else
+	{
+		ImGui::TextDisabled("No session DPS recorded yet.");
+	}
+
+	ImGui::Separator();
+	ImGui::Text("Per-Encounter DPS by Character (recent, time-aligned)");
+
+	std::vector<Encounter> encs = BuildEncounters(peers);
+	if (encs.empty())
+	{
+		ImGui::TextDisabled("No finalized battles yet.");
+		return;
+	}
+
+	const int K = std::min(static_cast<int>(encs.size()), 20);
+	const int startE = static_cast<int>(encs.size()) - K;
+
+	std::vector<float> xs(K);
+	for (int i = 0; i < K; ++i)
+		xs[i] = static_cast<float>(i + 1);
+
+	int numSeries = static_cast<int>(peers.size());
+	float groupWidth = 0.8f;
+	float barWidth = groupWidth / std::max(1, numSeries);
+	float startOff = -groupWidth * 0.5f + barWidth * 0.5f;
+
+	auto dpsInEncounter = [](const Encounter& e, const PeerRecord* p) -> float
+	{
+		for (const EncounterChar& c : e.chars)
+		{
+			if (c.peer == p)
+			{
+				return c.activeDurS > 0.0f ? static_cast<float>(c.damage) / c.activeDurS : 0.0f;
+			}
+		}
+		return 0.0f;
+	};
+
+	if (ImPlot::BeginPlot("Per-Encounter DPS", ImVec2(-1, 320)))
+	{
+		ImPlot::SetupAxes("Recent Encounter", "DPS");
+		ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, 0, HUGE_VAL);
+		ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+
+		std::vector<float> shifted(K);
+		std::vector<float> data(K);
+		for (int s = 0; s < numSeries; ++s)
+		{
+			const PeerRecord* p = peers[s];
+			for (int i = 0; i < K; ++i)
+			{
+				shifted[i] = xs[i] + startOff + s * barWidth;
+				data[i] = dpsInEncounter(encs[startE + i], p);
+			}
+			ImPlot::SetNextFillStyle(p->color);
+			std::string label = p->isSelf ? (p->character + " (you)") : p->character;
+			ImPlot::PlotBars(label.c_str(), shifted.data(), data.data(), K, barWidth * 0.9f);
+		}
+
+		if (ImPlot::IsPlotHovered())
+		{
+			ImPlotPoint mp = ImPlot::GetPlotMousePos();
+			int ord = static_cast<int>(mp.x + 0.5);
+			if (ord >= 1 && ord <= K)
+			{
+				const Encounter& e = encs[startE + ord - 1];
+				ImGui::BeginTooltip();
+				ImGui::Text("Encounter %s  (%.0fs)", FormatClock(e.startMs).c_str(), e.DurationS());
+				ImGui::Separator();
+				for (int s = 0; s < numSeries; ++s)
+				{
+					const PeerRecord* p = peers[s];
+					ImGui::TextColored(p->color, "%s%s: %.1f",
+						p->character.c_str(), p->isSelf ? " (you)" : "", dpsInEncounter(e, p));
+				}
+				ImGui::EndTooltip();
+			}
+		}
+
+		ImPlot::EndPlot();
+	}
+}
+
 void MyDPSRenderer::RenderConfigWindow(MyDPSEngine& engine)
 {
 	if (!engine.showConfigWindow)
+	{
 		return;
+	}
 
 	auto oldStyle = ImGuiTheme::ApplyTheme(engine.settings.themeIdx);
 
@@ -855,7 +1505,9 @@ void MyDPSRenderer::RenderConfigWindow(MyDPSEngine& engine)
 	ImGuiTheme::ResetTheme(oldStyle);
 
 	if (wasOpen && !engine.showConfigWindow)
+	{
 		engine.SaveCharacterSettings();
+	}
 }
 
 void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
@@ -869,7 +1521,9 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Load"))
+	{
 		engine.LoadCharacterSettings();
+	}
 
 	ImGui::Separator();
 
@@ -1008,7 +1662,9 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					for (const auto& info : GetFCTTypeInfoList())
 					{
 						if (info.isMeleeVerb && !s.fctDistinctMelee)
+						{
 							continue;
+						}
 
 						ImGui::PushID(info.key);
 						ImGui::TableNextRow();
@@ -1019,7 +1675,9 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 						ImGui::TableNextColumn();
 						auto colorIt = s.damageColors.find(info.key);
 						if (colorIt != s.damageColors.end())
+						{
 							ImGui::ColorEdit4("##color", &colorIt->second.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+						}
 
 						ImGui::TableNextColumn();
 						{
@@ -1040,7 +1698,9 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 								}
 							}
 							if (!drewIcon)
+							{
 								ImGui::Dummy(ImVec2(24, 24));
+							}
 
 							ImGui::SetCursorScreenPos(cursorPos);
 							if (ImGui::InvisibleButton("##pick", ImVec2(24, 24)))
@@ -1050,19 +1710,29 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 								m_iconPickerLabel = info.displayName;
 							}
 							if (ImGui::IsItemHovered())
+							{
 								ImGui::SetTooltip("Click to change icon");
+							}
 						}
 
 						ImGui::TableNextColumn();
 						if (ImGui::SmallButton("X"))
+						{
 							s.fctIconOverrides[info.key] = { FCT_ICON_NONE, false };
+						}
 						if (ImGui::IsItemHovered())
+						{
 							ImGui::SetTooltip("Remove icon");
+						}
 						ImGui::SameLine();
 						if (ImGui::SmallButton("D"))
+						{
 							s.fctIconOverrides.erase(info.key);
+						}
 						if (ImGui::IsItemHovered())
+						{
 							ImGui::SetTooltip("Reset to default");
+						}
 
 						ImGui::PopID();
 					}
@@ -1098,12 +1768,18 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					for (int i = 0; i < static_cast<int>(bones.size()); ++i)
 					{
 						if (i == 6)
+						{
 							ImGui::Separator();
+						}
 						bool isSelected = (s.fctBonePlayer == bones[i].index);
 						if (ImGui::Selectable(bones[i].label, isSelected))
+						{
 							s.fctBonePlayer = bones[i].index;
+						}
 						if (isSelected)
+						{
 							ImGui::SetItemDefaultFocus();
+						}
 					}
 					ImGui::EndCombo();
 				}
@@ -1133,6 +1809,105 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 			if (ImGui::BeginChild("##ThemeChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
 				s.themeIdx = ImGuiTheme::DrawThemePicker(s.themeIdx, "Theme##DPSTheme");
+			}
+			ImGui::EndChild();
+			ImGui::EndTabItem();
+		}
+
+		if (ImGui::BeginTabItem("Patterns"))
+		{
+			if (ImGui::BeginChild("##PatternsChild", ImVec2(0, 0), ImGuiChildFlags_None))
+			{
+				auto* pe = engine.GetPatternEngine();
+				if (pe)
+				{
+					if (ImGui::Button("Save"))
+						pe->SavePatterns();
+					ImGui::SameLine();
+					if (ImGui::Button("Reload"))
+						engine.ReloadPatterns();
+					ImGui::SameLine();
+					ImGui::TextDisabled("(%s)", pe->GetPatternsPath().c_str());
+
+					ImGui::Separator();
+					ImGui::TextUnformatted("Chat Patterns");
+					ImGui::Separator();
+
+					if (ImGui::BeginTable("##PatTable", 3,
+						ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+					{
+						ImGui::TableSetupColumn("##En",   ImGuiTableColumnFlags_WidthFixed, 30.0f);
+						ImGui::TableSetupColumn("Key",    ImGuiTableColumnFlags_WidthFixed, 120.0f);
+						ImGui::TableSetupColumn("Pattern",ImGuiTableColumnFlags_WidthStretch);
+						ImGui::TableHeadersRow();
+
+						for (auto& p : pe->GetPatterns())
+						{
+							ImGui::PushID(p.key.c_str());
+							ImGui::TableNextRow();
+
+							ImGui::TableNextColumn();
+							ImGui::Checkbox("##en", &p.enabled);
+
+							ImGui::TableNextColumn();
+							ImGui::TextUnformatted(p.key.c_str());
+
+							ImGui::TableNextColumn();
+							char buf[512];
+							strncpy_s(buf, p.rawPattern.c_str(), sizeof(buf));
+							ImGui::SetNextItemWidth(-1);
+							if (ImGui::InputText("##pat", buf, sizeof(buf)))
+								p.rawPattern = buf;
+
+							ImGui::PopID();
+						}
+
+						ImGui::EndTable();
+					}
+
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::TextUnformatted("Pet Patterns");
+					ImGui::Separator();
+
+					if (ImGui::BeginTable("##PetPatTable", 3,
+						ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+					{
+						ImGui::TableSetupColumn("##En",   ImGuiTableColumnFlags_WidthFixed, 30.0f);
+						ImGui::TableSetupColumn("Key",    ImGuiTableColumnFlags_WidthFixed, 120.0f);
+						ImGui::TableSetupColumn("Pattern",ImGuiTableColumnFlags_WidthStretch);
+						ImGui::TableHeadersRow();
+
+						for (auto& p : pe->GetPetPatterns())
+						{
+							ImGui::PushID(p.key.c_str());
+							ImGui::TableNextRow();
+
+							ImGui::TableNextColumn();
+							ImGui::Checkbox("##en", &p.enabled);
+
+							ImGui::TableNextColumn();
+							ImGui::TextUnformatted(p.key.c_str());
+
+							ImGui::TableNextColumn();
+							char buf[512];
+							strncpy_s(buf, p.rawPattern.c_str(), sizeof(buf));
+							ImGui::SetNextItemWidth(-1);
+							if (ImGui::InputText("##pat", buf, sizeof(buf)))
+								p.rawPattern = buf;
+
+							ImGui::PopID();
+						}
+
+						ImGui::EndTable();
+					}
+
+					ImGui::Spacing();
+					ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+						"Captures: #name#  |  Wildcards: #*#  |  Tokens: {CharName} {PetName}");
+					ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+						"Click Save then Reload to apply changes.");
+				}
 			}
 			ImGui::EndChild();
 			ImGui::EndTabItem();

@@ -7,23 +7,31 @@ MyDPSType* pMyDPSType = nullptr;
 static const TargetDamageData* FindTargetBySpawnID(int spawnID)
 {
 	if (!g_dpsEngine || spawnID == 0)
+	{
 		return nullptr;
+	}
 
 	auto it = g_dpsEngine->currentTargets.find(spawnID);
 	if (it != g_dpsEngine->currentTargets.end())
+	{
 		return &it->second;
+	}
 	return nullptr;
 }
 
 static const TargetDamageData* FindTargetByName(const char* name)
 {
 	if (!g_dpsEngine || !name || !name[0])
+	{
 		return nullptr;
+	}
 
 	for (const auto& [id, data] : g_dpsEngine->currentTargets)
 	{
 		if (data.name == name)
+		{
 			return &data;
+		}
 	}
 	return nullptr;
 }
@@ -43,11 +51,15 @@ bool MyDPSTargetType::GetMember(MQVarPtr VarPtr, const char* Member, char* Index
 {
 	MQTypeMember* pMember = FindMember(Member);
 	if (!pMember || !g_dpsEngine)
+	{
 		return false;
+	}
 
 	const TargetDamageData* data = FindTargetBySpawnID(VarPtr.Int);
 	if (!data)
+	{
 		return false;
+	}
 
 	switch (static_cast<Members>(pMember->ID))
 	{
@@ -95,7 +107,9 @@ bool MyDPSTargetType::ToString(MQVarPtr VarPtr, char* Destination)
 {
 	const TargetDamageData* data = FindTargetBySpawnID(VarPtr.Int);
 	if (!data)
+	{
 		return false;
+	}
 
 	strcpy_s(Destination, MAX_STRING, data->name.c_str());
 	return true;
@@ -124,7 +138,9 @@ bool MyDPSType::GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTy
 		{
 		case Methods::Reset:
 			if (g_dpsEngine)
+			{
 				g_dpsEngine->ResetAll();
+			}
 			Dest.Set(true);
 			Dest.Type = mq::datatypes::pBoolType;
 			return true;
@@ -133,7 +149,9 @@ bool MyDPSType::GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTy
 
 	MQTypeMember* pMember = FindMember(Member);
 	if (!pMember || !g_dpsEngine)
+	{
 		return false;
+	}
 
 	switch (static_cast<Members>(pMember->ID))
 	{
@@ -175,9 +193,13 @@ bool MyDPSType::GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTy
 			char* end = nullptr;
 			long idx = strtol(Index, &end, 10);
 			if (end != Index && *end == '\0')
+			{
 				data = FindTargetBySpawnID(static_cast<int>(idx));
+			}
 			else
+			{
 				data = FindTargetByName(Index);
+			}
 
 			if (data)
 			{

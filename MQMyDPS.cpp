@@ -1,8 +1,9 @@
 #include <mq/Plugin.h>
 #include "MQMyDPS.h"
-#include "MyDPSParser.h"
+#include "MyDPSPatternEngine.h"
 #include "MyDPSRenderer.h"
 #include "MyDPSTLO.h"
+#include "MyChatAPI.h"
 
 #include <filesystem>
 #include <fmt/format.h>
@@ -38,30 +39,65 @@ PLUGIN_API void ShutdownPlugin()
 PLUGIN_API void SetGameState(int GameState)
 {
 	if (!g_dpsEngine)
+	{
 		return;
+	}
 
 	if (GameState == GAMESTATE_INGAME)
+	{
 		g_dpsEngine->LoadCharacterSettings();
+	}
 	else if (GameState == GAMESTATE_CHARSELECT)
+	{
 		g_dpsEngine->UnloadCharacterSettings();
+	}
 }
 
 PLUGIN_API bool OnIncomingChat(const char* Line, DWORD Color)
 {
 	if (g_dpsEngine && g_dpsEngine->tracking)
+	{
 		g_dpsEngine->ProcessChat(Line, Color);
+	}
 	return false;
 }
 
 PLUGIN_API void OnPulse()
 {
-	if (!g_dpsEngine || !g_dpsEngine->tracking)
+	if (!g_dpsEngine || GetGameState() != GAMESTATE_INGAME)
+	{
 		return;
+	}
 
 	static auto pulseTimer = std::chrono::steady_clock::now();
 	if (std::chrono::steady_clock::now() < pulseTimer)
+	{
 		return;
+	}
 	pulseTimer = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+
+	if (!g_dpsEngine->actors.IsValid() && pLocalPC)
+	{
+		if (g_dpsEngine->charName.empty())
+		{
+			g_dpsEngine->charName = pLocalPC->Name;
+			if (const char* sv = GetServerShortName())
+			{
+				g_dpsEngine->serverName = sv;
+			}
+		}
+		if (!g_dpsEngine->charName.empty())
+		{
+			g_dpsEngine->actors.Init(g_dpsEngine, g_dpsEngine->serverName, g_dpsEngine->charName);
+		}
+	}
+
+	g_dpsEngine->actors.Pulse();
+
+	if (!g_dpsEngine->tracking)
+	{
+		return;
+	}
 
 	g_dpsEngine->TrackDoTCasting();
 	g_dpsEngine->UpdateCombatState();
@@ -72,9 +108,12 @@ PLUGIN_API void OnPulse()
 PLUGIN_API void OnUpdateImGui()
 {
 	if (!g_dpsEngine || GetGameState() != GAMESTATE_INGAME)
+	{
 		return;
+	}
 
 	s_renderer.RenderMainWindow(*g_dpsEngine);
+	s_renderer.RenderPopOutWindows(*g_dpsEngine);
 	s_renderer.RenderConfigWindow(*g_dpsEngine);
 	s_renderer.RenderCombatSpam(*g_dpsEngine);
 	s_renderer.RenderFloatingText(*g_dpsEngine);
@@ -95,13 +134,17 @@ PLUGIN_API void OnBeginZone()
 PLUGIN_API void OnRemoveSpawn(PSPAWNINFO pSpawn)
 {
 	if (g_dpsEngine && pSpawn)
+	{
 		g_dpsEngine->RemoveActiveDoTs(pSpawn->SpawnID);
+	}
 }
 
 static void DrawMyDPS_MQSettingsPanel()
 {
 	if (!g_dpsEngine)
+	{
 		return;
+	}
 
 	s_renderer.RenderConfig(*g_dpsEngine);
 }
@@ -109,7 +152,9 @@ static void DrawMyDPS_MQSettingsPanel()
 static void MyDPSCommand(PlayerClient*, const char* szLine)
 {
 	if (!g_dpsEngine)
+	{
 		return;
+	}
 
 	char arg[MAX_STRING] = {};
 	GetArg(arg, szLine, 1);
@@ -124,22 +169,24 @@ static void MyDPSCommand(PlayerClient*, const char* szLine)
 	{
 		g_dpsEngine->tracking = true;
 		if (g_dpsEngine->sessionDamage == 0)
+		{
 			g_dpsEngine->sessionStartTime = std::chrono::steady_clock::now();
-		WriteChatf("\at[MQMyDPS]\ax Tracking started.");
+		}
+		g_dpsEngine->Output("\at[MQMyDPS]\ax Tracking started.");
 		return;
 	}
 
 	if (ci_equals(arg, "stop"))
 	{
 		g_dpsEngine->tracking = false;
-		WriteChatf("\at[MQMyDPS]\ax Tracking stopped.");
+		g_dpsEngine->Output("\at[MQMyDPS]\ax Tracking stopped.");
 		return;
 	}
 
 	if (ci_equals(arg, "reset"))
 	{
 		g_dpsEngine->ResetAll();
-		WriteChatf("\at[MQMyDPS]\ax All data reset.");
+		g_dpsEngine->Output("\at[MQMyDPS]\ax All data reset.");
 		return;
 	}
 
@@ -149,8 +196,7 @@ static void MyDPSCommand(PlayerClient*, const char* szLine)
 		std::string report = fmt::format(
 			"\at[MQMyDPS]\ax Session DPS: \ay{:.1f}\ax | Total: \ag{}\ax | Hits: \aw{}\ax",
 			dps, FormatNumber(g_dpsEngine->sessionDamage), g_dpsEngine->sessionHitCount);
-		WriteChatf("%s", report.c_str());
-		g_dpsEngine->SendToMyChat(report);
+		g_dpsEngine->Output(report);
 		return;
 	}
 
@@ -175,48 +221,118 @@ static void MyDPSCommand(PlayerClient*, const char* szLine)
 	if (ci_equals(arg, "spam"))
 	{
 		g_dpsEngine->showCombatSpam = !g_dpsEngine->showCombatSpam;
-		WriteChatf("\at[MQMyDPS]\ax Combat output %s.", g_dpsEngine->showCombatSpam ? "shown" : "hidden");
+		g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Combat output {}.", g_dpsEngine->showCombatSpam ? "shown" : "hidden"));
 		return;
 	}
 
 	if (ci_equals(arg, "lock"))
 	{
 		g_dpsEngine->settings.spamClickThrough = !g_dpsEngine->settings.spamClickThrough;
-		WriteChatf("\at[MQMyDPS]\ax Combat output window %s.", g_dpsEngine->settings.spamClickThrough ? "locked" : "unlocked");
+		g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Combat output window {}.", g_dpsEngine->settings.spamClickThrough ? "locked" : "unlocked"));
 		return;
 	}
 
 	if (ci_equals(arg, "fct"))
 	{
 		g_dpsEngine->settings.showFCT = !g_dpsEngine->settings.showFCT;
-		WriteChatf("\at[MQMyDPS]\ax Floating combat text %s.", g_dpsEngine->settings.showFCT ? "enabled" : "disabled");
+		g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Floating combat text {}.", g_dpsEngine->settings.showFCT ? "enabled" : "disabled"));
+		return;
+	}
+
+	if (ci_equals(arg, "peers"))
+	{
+		g_dpsEngine->settings.showPeers = !g_dpsEngine->settings.showPeers;
+		g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Peer display {}.", g_dpsEngine->settings.showPeers ? "shown" : "hidden"));
+		return;
+	}
+
+	if (ci_equals(arg, "filter"))
+	{
+		char subarg[MAX_STRING] = {};
+		GetArg(subarg, szLine, 2);
+		if (ci_equals(subarg, "all"))
+		{
+			g_dpsEngine->settings.peerFilterMode = 0;
+		}
+		else if (ci_equals(subarg, "server"))
+		{
+			g_dpsEngine->settings.peerFilterMode = 1;
+		}
+		else if (ci_equals(subarg, "group"))
+		{
+			g_dpsEngine->settings.peerFilterMode = 2;
+		}
+		else if (ci_equals(subarg, "raid"))
+		{
+			g_dpsEngine->settings.peerFilterMode = 3;
+		}
+		else
+		{
+			g_dpsEngine->Output("\at[MQMyDPS]\ax Usage: /mydps filter all|server|group|raid");
+			return;
+		}
+		static const char* names[] = { "All", "Same Server", "Same Group", "Same Raid" };
+		g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Peer filter set to \ay{}\ax.", names[g_dpsEngine->settings.peerFilterMode]));
+		return;
+	}
+
+	if (ci_equals(arg, "debug"))
+	{
+		g_dpsEngine->settings.debugMode = !g_dpsEngine->settings.debugMode;
+		g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Debug output {}.",
+			g_dpsEngine->settings.debugMode ? "enabled" : "disabled"));
+		return;
+	}
+
+	if (ci_equals(arg, "peerdebug"))
+	{
+		g_dpsEngine->actors.DebugDump();
+		return;
+	}
+
+	if (ci_equals(arg, "patterns"))
+	{
+		char subarg[MAX_STRING] = {};
+		GetArg(subarg, szLine, 2);
+		if (ci_equals(subarg, "reload"))
+		{
+			g_dpsEngine->ReloadPatterns();
+			g_dpsEngine->Output("\at[MQMyDPS]\ax Patterns reloaded.");
+			return;
+		}
+		g_dpsEngine->Output("\at[MQMyDPS]\ax Usage: /mydps patterns reload");
 		return;
 	}
 
 	if (ci_equals(arg, "help"))
 	{
-		WriteChatf("\at[MQMyDPS]\ax --- Command Help ---");
-		WriteChatf("  \ay/mydps\ax           - Toggle main window");
-		WriteChatf("  \ay/mydps show\ax      - Show main window");
-		WriteChatf("  \ay/mydps hide\ax      - Hide main window");
-		WriteChatf("  \ay/mydps start\ax     - Start DPS tracking");
-		WriteChatf("  \ay/mydps stop\ax      - Stop DPS tracking");
-		WriteChatf("  \ay/mydps reset\ax     - Reset all data");
-		WriteChatf("  \ay/mydps report\ax    - Print session DPS to chat");
-		WriteChatf("  \ay/mydps config\ax    - Toggle config window");
-		WriteChatf("  \ay/mydps spam\ax      - Toggle combat output window");
-		WriteChatf("  \ay/mydps lock\ax      - Toggle combat output click-through");
-		WriteChatf("  \ay/mydps fct\ax       - Toggle floating combat text");
-		WriteChatf("  \ay/mydps help\ax      - Show this help");
+		g_dpsEngine->Output("\at[MQMyDPS]\ax --- Command Help ---");
+		g_dpsEngine->Output("  \ay/mydps\ax           - Toggle main window");
+		g_dpsEngine->Output("  \ay/mydps show\ax      - Show main window");
+		g_dpsEngine->Output("  \ay/mydps hide\ax      - Hide main window");
+		g_dpsEngine->Output("  \ay/mydps start\ax     - Start DPS tracking");
+		g_dpsEngine->Output("  \ay/mydps stop\ax      - Stop DPS tracking");
+		g_dpsEngine->Output("  \ay/mydps reset\ax     - Reset all data");
+		g_dpsEngine->Output("  \ay/mydps report\ax    - Print session DPS to chat");
+		g_dpsEngine->Output("  \ay/mydps config\ax    - Toggle config window");
+		g_dpsEngine->Output("  \ay/mydps spam\ax      - Toggle combat output window");
+		g_dpsEngine->Output("  \ay/mydps lock\ax      - Toggle combat output click-through");
+		g_dpsEngine->Output("  \ay/mydps fct\ax       - Toggle floating combat text");
+		g_dpsEngine->Output("  \ay/mydps peers\ax     - Toggle peer (group) data display");
+		g_dpsEngine->Output("  \ay/mydps filter all|server|group|raid\ax - Set peer filter");
+		g_dpsEngine->Output("  \ay/mydps peerdebug\ax - Print actor mailbox status + known peers");
+		g_dpsEngine->Output("  \ay/mydps debug\ax    - Toggle verbose debug output (peer discovery, etc.)");
+		g_dpsEngine->Output("  \ay/mydps patterns reload\ax - Reload patterns from JSON");
+		g_dpsEngine->Output("  \ay/mydps help\ax      - Show this help");
 		return;
 	}
 
-	WriteChatf("\at[MQMyDPS]\ax Unknown command '\ar%s\ax'. Use \ay/mydps help\ax for a list of commands.", arg);
+	g_dpsEngine->Output(fmt::format("\at[MQMyDPS]\ax Unknown command '\ar{}\ax'. Use \ay/mydps help\ax for a list of commands.", arg));
 }
 
 void MyDPSEngine::Initialize()
 {
-	m_parser = std::make_unique<MyDPSParser>();
+	m_patternEngine = std::make_unique<MyDPSPatternEngine>();
 	settings.InitDefaultColors();
 	sessionStartTime = std::chrono::steady_clock::now();
 }
@@ -224,32 +340,39 @@ void MyDPSEngine::Initialize()
 void MyDPSEngine::Shutdown()
 {
 	SaveCharacterSettings();
-	m_parser.reset();
+	actors.Shutdown();
+	m_patternEngine->Shutdown();
+	m_patternEngine.reset();
 }
 
 void MyDPSEngine::LoadCharacterSettings()
 {
 	if (!pLocalPC || !pLocalPlayer)
+	{
 		return;
+	}
 
 	m_myChatLoaded = IsPluginLoaded("MQMyChat");
 	charName = pLocalPC->Name;
 	serverName = GetServerShortName();
 
-	m_parser->SetCharName(charName);
+	m_patternEngine->Initialize(charName);
+	m_patternEngine->LoadPatterns(serverName, charName);
+	m_patternEngine->RegisterEvents();
+	m_currentPetName.clear();
 
-	if (pLocalPlayer->PetID > 0)
-	{
-		if (auto* pPet = GetSpawnByID(pLocalPlayer->PetID))
-			m_parser->SetPetName(pPet->DisplayedName);
-	}
+	actors.Init(this, serverName, charName);
 
 	std::string path = GetSettingsPath();
 	if (path.empty())
+	{
 		return;
+	}
 
 	if (!std::filesystem::exists(path))
+	{
 		return;
+	}
 
 	settings.sortNewest       = GetPrivateProfileBool("Options", "SortNewest", true, path);
 	settings.showType         = GetPrivateProfileBool("Options", "ShowType", true, path);
@@ -265,13 +388,27 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.displayTime      = GetPrivateProfileInt("Options", "DisplayTime", 10, path);
 	settings.battleEndDelay   = GetPrivateProfileInt("Options", "BattleEndDelay", 10, path);
 
+	settings.showPeers        = GetPrivateProfileBool("Group", "ShowPeers", true, path);
+	settings.peerFilterMode   = GetPrivateProfileInt("Group", "FilterMode", 0, path);
+	if (settings.peerFilterMode < 0 || settings.peerFilterMode > 3)
+	{
+		settings.peerFilterMode = 0;
+	}
+	settings.debugMode        = GetPrivateProfileBool("Group", "Debug", false, path);
+
 	char buf[64] = {};
 	GetPrivateProfileString("Options", "FontScale", "1.0", buf, sizeof(buf), path);
 	settings.fontScale = static_cast<float>(atof(buf));
-	if (settings.fontScale < 0.5f || settings.fontScale > 2.0f) settings.fontScale = 1.0f;
+	if (settings.fontScale < 0.5f || settings.fontScale > 2.0f)
+	{
+		settings.fontScale = 1.0f;
+	}
 	GetPrivateProfileString("Options", "SpamFontScale", "1.0", buf, sizeof(buf), path);
 	settings.spamFontScale = static_cast<float>(atof(buf));
-	if (settings.spamFontScale < 0.5f || settings.spamFontScale > 2.0f) settings.spamFontScale = 1.0f;
+	if (settings.spamFontScale < 0.5f || settings.spamFontScale > 2.0f)
+	{
+		settings.spamFontScale = 1.0f;
+	}
 	settings.themeIdx = GetPrivateProfileInt("Options", "ThemeIdx", 10, path);
 
 	showMainWindow = GetPrivateProfileBool("Windows", "ShowMain", true, path);
@@ -293,25 +430,46 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.fctUseSpellIcons  = GetPrivateProfileBool("FCT", "UseSpellIcons", false, path);
 	GetPrivateProfileString("FCT", "IconScale", "1.0", buf, sizeof(buf), path);
 	settings.fctIconScale = static_cast<float>(atof(buf));
-	if (settings.fctIconScale < 0.1f || settings.fctIconScale > 1.0f) settings.fctIconScale = 1.0f;
+	if (settings.fctIconScale < 0.1f || settings.fctIconScale > 1.0f)
+	{
+		settings.fctIconScale = 1.0f;
+	}
 	GetPrivateProfileString("FCT", "FloatDistance", "150.0", buf, sizeof(buf), path);
 	settings.fctFloatDistance = static_cast<float>(atof(buf));
-	if (settings.fctFloatDistance < 30.0f || settings.fctFloatDistance > 300.0f) settings.fctFloatDistance = 150.0f;
+	if (settings.fctFloatDistance < 30.0f || settings.fctFloatDistance > 300.0f)
+	{
+		settings.fctFloatDistance = 150.0f;
+	}
 	GetPrivateProfileString("FCT", "ArcScale", "1.0", buf, sizeof(buf), path);
 	settings.fctArcScale = static_cast<float>(atof(buf));
-	if (settings.fctArcScale < 0.0f || settings.fctArcScale > 3.0f) settings.fctArcScale = 1.0f;
+	if (settings.fctArcScale < 0.0f || settings.fctArcScale > 3.0f)
+	{
+		settings.fctArcScale = 1.0f;
+	}
 	GetPrivateProfileString("FCT", "Lifetime", "2.5", buf, sizeof(buf), path);
 	settings.fctLifetime = static_cast<float>(atof(buf));
-	if (settings.fctLifetime < 1.0f || settings.fctLifetime > 5.0f) settings.fctLifetime = 2.5f;
+	if (settings.fctLifetime < 1.0f || settings.fctLifetime > 5.0f)
+	{
+		settings.fctLifetime = 2.5f;
+	}
 	GetPrivateProfileString("FCT", "BaseFontSize", "24.0", buf, sizeof(buf), path);
 	settings.fctBaseFontSize = static_cast<float>(atof(buf));
-	if (settings.fctBaseFontSize < 12.0f || settings.fctBaseFontSize > 48.0f) settings.fctBaseFontSize = 24.0f;
+	if (settings.fctBaseFontSize < 12.0f || settings.fctBaseFontSize > 48.0f)
+	{
+		settings.fctBaseFontSize = 24.0f;
+	}
 	GetPrivateProfileString("FCT", "FontScale", "1.5", buf, sizeof(buf), path);
 	settings.fctFontScale = static_cast<float>(atof(buf));
-	if (settings.fctFontScale < 0.5f || settings.fctFontScale > 3.0f) settings.fctFontScale = 1.5f;
+	if (settings.fctFontScale < 0.5f || settings.fctFontScale > 3.0f)
+	{
+		settings.fctFontScale = 1.5f;
+	}
 	GetPrivateProfileString("FCT", "ShadowOffset", "2.0", buf, sizeof(buf), path);
 	settings.fctShadowOffset = static_cast<float>(atof(buf));
-	if (settings.fctShadowOffset < 0.0f || settings.fctShadowOffset > 5.0f) settings.fctShadowOffset = 2.0f;
+	if (settings.fctShadowOffset < 0.0f || settings.fctShadowOffset > 5.0f)
+	{
+		settings.fctShadowOffset = 2.0f;
+	}
 	settings.fctBonePlayer = GetPrivateProfileInt("FCT", "BonePlayer", 11, path);
 	settings.fctBoneOther  = GetPrivateProfileInt("FCT", "BoneOther",  20, path);
 
@@ -321,7 +479,9 @@ void MyDPSEngine::LoadCharacterSettings()
 		GetPrivateProfileString("FCTIcons", info.key, "-1", buf, sizeof(buf), path);
 		int id = atoi(buf);
 		if (id >= 0 || id == FCT_ICON_NONE)
+		{
 			settings.fctIconOverrides[info.key] = { id, id >= FCT_ITEM_ICON_OFFSET };
+		}
 	}
 
 	for (auto& [key, color] : settings.damageColors)
@@ -334,16 +494,20 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.bgColor = GetPrivateProfileColor("Colors", "background", defaultBg, path).ToImColor();
 
 	if (settings.autoStart)
+	{
 		tracking = true;
+	}
 
-	WriteChatf("\at[MQMyDPS]\ax Settings loaded for %s.", charName.c_str());
+	Output(fmt::format("\at[MQMyDPS]\ax Settings loaded for {}.", charName));
 }
 
 void MyDPSEngine::SaveCharacterSettings()
 {
 	std::string path = GetSettingsPath();
 	if (path.empty())
+	{
 		return;
+	}
 
 	std::filesystem::create_directories(std::filesystem::path(path).parent_path());
 
@@ -360,6 +524,10 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileBool("Options", "SpamClickThrough", settings.spamClickThrough, path);
 	WritePrivateProfileInt("Options", "DisplayTime", settings.displayTime, path);
 	WritePrivateProfileInt("Options", "BattleEndDelay", settings.battleEndDelay, path);
+
+	WritePrivateProfileBool("Group", "ShowPeers", settings.showPeers, path);
+	WritePrivateProfileInt("Group", "FilterMode", settings.peerFilterMode, path);
+	WritePrivateProfileBool("Group", "Debug", settings.debugMode, path);
 
 	auto floatStr = [](float v) { return fmt::format("{:.2f}", v); };
 	WritePrivateProfileString("Options", "FontScale", floatStr(settings.fontScale), path);
@@ -408,46 +576,77 @@ void MyDPSEngine::SaveCharacterSettings()
 void MyDPSEngine::UnloadCharacterSettings()
 {
 	if (charName.empty())
+	{
 		return;
+	}
 
+	m_patternEngine->UnregisterPetEvents();
+	m_patternEngine->UnregisterEvents();
+	m_currentPetName.clear();
 	SaveCharacterSettings();
+	actors.Shutdown();
 	charName.clear();
 	serverName.clear();
 }
 
 void MyDPSEngine::ProcessChat(const char* line, DWORD color)
 {
-	if (!m_parser)
+	if (!m_patternEngine)
+	{
 		return;
+	}
 
 	if (settings.addPet && pLocalPlayer && pLocalPlayer->PetID > 0)
 	{
 		if (auto* pPet = GetSpawnByID(pLocalPlayer->PetID))
-			m_parser->SetPetName(pPet->DisplayedName);
+		{
+			std::string petName = pPet->DisplayedName;
+			if (petName != m_currentPetName)
+			{
+				m_patternEngine->UnregisterPetEvents();
+				m_patternEngine->RegisterPetEvents(petName);
+				m_currentPetName = petName;
+			}
+		}
 	}
-	else
+	else if (!m_currentPetName.empty())
 	{
-		m_parser->SetPetName("");
+		m_patternEngine->UnregisterPetEvents();
+		m_currentPetName.clear();
 	}
 
-	auto result = m_parser->Parse(line, color);
+	auto result = m_patternEngine->Feed(line, color);
 	if (!result.has_value())
+	{
 		return;
+	}
 
 	auto& rec = result.value();
 
 	if (rec.isMiss && rec.type == DamageType::Miss && !settings.showMyMisses)
+	{
 		return;
+	}
 	if (rec.type == DamageType::MissedMe && !settings.showMissMe)
+	{
 		return;
+	}
 	if (rec.type == DamageType::HitBy && !settings.showHitMe)
+	{
 		return;
+	}
 	if (rec.type == DamageType::HitByNonMelee && !settings.showHitMe)
+	{
 		return;
+	}
 	if (rec.type == DamageType::CritHeal && !settings.showCritHeals)
+	{
 		return;
+	}
 	if (rec.type == DamageType::DamageShield && !settings.showDS)
+	{
 		return;
+	}
 
 	RecordDamage(rec);
 }
@@ -457,7 +656,9 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 	record.sequence = ++sequenceCounter;
 
 	if (record.targetName.empty() && record.type == DamageType::Crit && pTarget)
+	{
 		record.targetName = pTarget->DisplayedName;
+	}
 
 	bool isDamageOut = (record.type != DamageType::HitBy
 		&& record.type != DamageType::HitByNonMelee
@@ -483,6 +684,7 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			currentTargets.clear();
 			currentHealTargets.clear();
 			battleStartTime = std::chrono::steady_clock::now();
+			battleStartWallMs = NowEpochMs();
 		}
 
 		int spawnID = ResolveSpawnID(record);
@@ -523,13 +725,21 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			battleHitCount++;
 
 			if (record.type == DamageType::DoT)
+			{
 				battleDotDamage += record.damage;
+			}
 			if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+			{
 				battlePetDamage += record.damage;
+			}
 			if (record.type == DamageType::NonMelee)
+			{
 				battleNonMeleeDmg += record.damage;
+			}
 			if (record.type == DamageType::DamageShield)
+			{
 				battleDsDamage += record.damage;
+			}
 
 			auto& target = currentTargets[spawnID];
 			if (target.name.empty())
@@ -543,13 +753,21 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			target.lastHit = record.timestamp;
 
 			if (record.type == DamageType::DoT)
+			{
 				target.dotDamage += record.damage;
+			}
 			if (record.type == DamageType::DamageShield)
+			{
 				target.dsDamage += record.damage;
+			}
 			if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+			{
 				target.petDamage += record.damage;
+			}
 			if (record.type == DamageType::NonMelee)
+			{
 				target.nonMeleeDamage += record.damage;
+			}
 
 			auto& sessionTarget = cachedSessionTargets[spawnID];
 			if (sessionTarget.name.empty())
@@ -560,13 +778,21 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			sessionTarget.totalDamage += record.damage;
 			sessionTarget.hitCount++;
 			if (record.type == DamageType::DoT)
+			{
 				sessionTarget.dotDamage += record.damage;
+			}
 			if (record.type == DamageType::DamageShield)
+			{
 				sessionTarget.dsDamage += record.damage;
+			}
 			if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+			{
 				sessionTarget.petDamage += record.damage;
+			}
 			if (record.type == DamageType::NonMelee)
+			{
 				sessionTarget.nonMeleeDamage += record.damage;
+			}
 
 			aggregateDirty = true;
 		}
@@ -580,13 +806,17 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			battleDirectHeals += record.damage;
 			auto& ht = currentHealTargets[record.targetName];
 			if (ht.name.empty())
+			{
 				ht.name = record.targetName;
+			}
 			ht.directHeals += record.damage;
 			ht.healCount++;
 
 			auto& sht = cachedSessionHeals[record.targetName];
 			if (sht.name.empty())
+			{
 				sht.name = record.targetName;
+			}
 			sht.directHeals += record.damage;
 			sht.healCount++;
 			aggregateDirty = true;
@@ -596,7 +826,9 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 	if (record.type == DamageType::CritHeal && record.damage > 0)
 	{
 		if (record.targetName.empty() && !m_lastHealTarget.empty())
+		{
 			record.targetName = m_lastHealTarget;
+		}
 
 		if (inCombat)
 		{
@@ -604,12 +836,16 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 
 			auto& ht = currentHealTargets[record.targetName];
 			if (ht.name.empty())
+			{
 				ht.name = record.targetName;
+			}
 			ht.critHeals += record.damage;
 
 			auto& sht = cachedSessionHeals[record.targetName];
 			if (sht.name.empty())
+			{
 				sht.name = record.targetName;
+			}
 			sht.critHeals += record.damage;
 			aggregateDirty = true;
 		}
@@ -621,7 +857,9 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			|| record.type == DamageType::HitByNonMelee
 			|| record.type == DamageType::MissedMe);
 		if (isIncoming && pLocalPlayer)
+		{
 			record.targetSpawnID = pLocalPlayer->SpawnID;
+		}
 
 		bool isHeal = (record.type == DamageType::DirectHeal
 			|| record.type == DamageType::CritHeal);
@@ -630,7 +868,9 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			if (!record.targetName.empty() && record.targetName != charName)
 			{
 				if (PlayerClient* pTarget = GetSpawnByName(record.targetName.c_str()))
+				{
 					record.targetSpawnID = pTarget->SpawnID;
+				}
 			}
 			else
 			{
@@ -647,7 +887,9 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 void MyDPSEngine::UpdateCombatState()
 {
 	if (!pLocalPC || !inCombat)
+	{
 		return;
+	}
 
 	bool inGameCombat = (GetCombatState() == eCombatState_Combat);
 
@@ -663,7 +905,9 @@ void MyDPSEngine::UpdateCombatState()
 			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
 				std::chrono::steady_clock::now() - m_leftCombatTime).count();
 			if (elapsed >= settings.battleEndDelay)
+			{
 				FinalizeBattle();
+			}
 		}
 	}
 	else
@@ -694,6 +938,7 @@ void MyDPSEngine::FinalizeBattle()
 		battle.avgDamage = battle.hitCount > 0
 			? static_cast<float>(battle.totalDamage) / static_cast<float>(battle.hitCount)
 			: 0.0f;
+		battle.startTimeMs = battleStartWallMs;
 		battle.targets = std::move(currentTargets);
 		battle.healTargets = std::move(currentHealTargets);
 
@@ -716,6 +961,8 @@ void MyDPSEngine::FinalizeBattle()
 				"  \aoHealed\ax \at{}\ax - \ag{}\ax (\aw{}\ax heals)",
 				ht.name, FormatNumber(ht.GetTotalHeals()), ht.healCount));
 		}
+
+		actors.PublishFinalizedBattle(battle);
 
 		battleHistory.push_back(std::move(battle));
 	}
@@ -803,7 +1050,9 @@ void MyDPSEngine::RefreshAggregates()
 int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)
 {
 	if (record.targetName.empty())
+	{
 		return --m_syntheticIDCounter;
+	}
 
 	switch (record.type)
 	{
@@ -811,7 +1060,9 @@ int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)
 	case DamageType::NonMelee:
 	case DamageType::Crit:
 		if (pTarget && pTarget->DisplayedName == record.targetName)
+		{
 			return pTarget->SpawnID;
+		}
 		break;
 
 	case DamageType::PetMelee:
@@ -823,7 +1074,9 @@ int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)
 				if (PlayerClient* pPetTarget = pPet->WhoFollowing)
 				{
 					if (pPetTarget->DisplayedName == record.targetName)
+					{
 						return pPetTarget->SpawnID;
+					}
 				}
 			}
 		}
@@ -833,9 +1086,13 @@ int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)
 	{
 		int dotID = ResolveDoTSpawnID(record.targetName, record.spellName);
 		if (dotID > 0)
+		{
 			return dotID;
+		}
 		if (pTarget && pTarget->DisplayedName == record.targetName)
+		{
 			return pTarget->SpawnID;
+		}
 		break;
 	}
 
@@ -847,12 +1104,16 @@ int MyDPSEngine::ResolveSpawnID(const DamageRecord& record)
 	for (const auto& [id, data] : currentTargets)
 	{
 		if (data.name == record.targetName)
+		{
 			return id;
+		}
 	}
 
 	int xtID = ResolveFromXTarget(record.targetName);
 	if (xtID > 0)
+	{
 		return xtID;
+	}
 
 	return --m_syntheticIDCounter;
 }
@@ -862,7 +1123,9 @@ int MyDPSEngine::ResolveDoTSpawnID(const std::string& targetName, const std::str
 	for (const auto& dot : activeDoTs)
 	{
 		if (dot.targetName == targetName && (spellName.empty() || dot.spellName == spellName))
+		{
 			return dot.targetSpawnID;
+		}
 	}
 	return 0;
 }
@@ -870,7 +1133,9 @@ int MyDPSEngine::ResolveDoTSpawnID(const std::string& targetName, const std::str
 int MyDPSEngine::ResolveFromXTarget(const std::string& targetName)
 {
 	if (!pLocalPC || !pLocalPC->pExtendedTargetList)
+	{
 		return 0;
+	}
 
 	int matchID = 0;
 	int matchCount = 0;
@@ -878,20 +1143,28 @@ int MyDPSEngine::ResolveFromXTarget(const std::string& targetName)
 	for (const ExtendedTargetSlot& slot : *pLocalPC->pExtendedTargetList)
 	{
 		if (slot.XTargetSlotStatus == eXTSlotEmpty || slot.SpawnID == 0)
+		{
 			continue;
+		}
 
 		if (slot.Name != targetName)
+		{
 			continue;
+		}
 
 		SPAWNINFO* pSpawn = GetSpawnByID(slot.SpawnID);
 		if (!pSpawn || pSpawn->Type != SPAWN_NPC)
+		{
 			continue;
+		}
 
 		if (pSpawn->MasterID != 0)
 		{
 			SPAWNINFO* pMaster = GetSpawnByID(pSpawn->MasterID);
 			if (pMaster && pMaster->Type == SPAWN_PLAYER)
+			{
 				continue;
+			}
 		}
 
 		matchID = pSpawn->SpawnID;
@@ -899,7 +1172,9 @@ int MyDPSEngine::ResolveFromXTarget(const std::string& targetName)
 	}
 
 	if (matchCount == 1)
+	{
 		return matchID;
+	}
 
 	return 0;
 }
@@ -907,7 +1182,9 @@ int MyDPSEngine::ResolveFromXTarget(const std::string& targetName)
 void MyDPSEngine::TrackDoTCasting()
 {
 	if (!pLocalPlayer)
+	{
 		return;
+	}
 
 	if (pLocalPlayer->CastingData.SpellID != -1)
 	{
@@ -915,7 +1192,9 @@ void MyDPSEngine::TrackDoTCasting()
 		m_lastCastTargetID = pLocalPlayer->CastingData.TargetID;
 
 		if (EQ_Spell* pCasting = GetSpellByID(m_lastCastSpellID))
+		{
 			m_lastCastSpellIcon = pCasting->SpellIcon;
+		}
 	}
 	else if (m_lastCastSpellID != -1)
 	{
@@ -952,21 +1231,33 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 {
 	std::string overrideKey;
 	if (record.type == DamageType::Melee && settings.fctDistinctMelee)
+	{
 		overrideKey = record.attackVerb;
+	}
 	else if (record.type == DamageType::Melee)
+	{
 		overrideKey = "hit";
+	}
 	else if (record.type == DamageType::PetMelee || record.type == DamageType::PetNonMelee)
+	{
 		overrideKey = "pet";
+	}
 	else
+	{
 		overrideKey = DamageTypeToColorKey(record.type);
+	}
 
 	auto overIt = settings.fctIconOverrides.find(overrideKey);
 	if (overIt != settings.fctIconOverrides.end())
 	{
 		if (overIt->second.iconID == FCT_ICON_NONE)
+		{
 			return -1;
+		}
 		if (overIt->second.iconID >= 0)
+		{
 			return overIt->second.iconID;
+		}
 	}
 
 	switch (record.type)
@@ -976,15 +1267,21 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+			{
 				return pSpell->SpellIcon;
+			}
 		}
 		return 0;
 
 	case DamageType::Melee:
 		if (record.attackVerb == "kick")
+		{
 			return 201;
+		}
 		if (record.attackVerb == "bash")
+		{
 			return 155;
+		}
 		return 49;
 
 	case DamageType::PetMelee:
@@ -994,7 +1291,9 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+			{
 				return pSpell->SpellIcon;
+			}
 		}
 		return 50;
 
@@ -1002,12 +1301,16 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+			{
 				return pSpell->SpellIcon;
+			}
 
 			for (const auto& dot : activeDoTs)
 			{
 				if (dot.spellName == record.spellName && dot.spellIconID >= 0)
+				{
 					return dot.spellIconID;
+				}
 			}
 		}
 		return -1;
@@ -1019,10 +1322,14 @@ int MyDPSEngine::ResolveSpellIconID(const DamageRecord& record) const
 		if (settings.fctUseSpellIcons && !record.spellName.empty())
 		{
 			if (EQ_Spell* pSpell = GetSpellByName(record.spellName))
+			{
 				return pSpell->SpellIcon;
+			}
 		}
 		if (settings.fctUseSpellIcons && m_lastCastSpellIcon >= 0)
+		{
 			return m_lastCastSpellIcon;
+		}
 		return -1;
 
 	default:
@@ -1047,16 +1354,22 @@ void MyDPSEngine::CleanExpiredRecords()
 	{
 		auto age = now - recentRecords.front().timestamp;
 		if (age > maxAge)
+		{
 			recentRecords.pop_front();
+		}
 		else
+		{
 			break;
+		}
 	}
 }
 
 float MyDPSEngine::GetSessionDPS() const
 {
 	if (sessionDamage == 0)
+	{
 		return 0.0f;
+	}
 	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
 		std::chrono::steady_clock::now() - sessionStartTime).count();
 	return elapsed > 0 ? static_cast<float>(sessionDamage) / static_cast<float>(elapsed) : 0.0f;
@@ -1065,7 +1378,9 @@ float MyDPSEngine::GetSessionDPS() const
 float MyDPSEngine::GetBattleDPS() const
 {
 	if (!inCombat || battleDamage == 0)
+	{
 		return 0.0f;
+	}
 	float dur = GetBattleDuration();
 	return dur > 0.0f ? static_cast<float>(battleDamage) / dur : 0.0f;
 }
@@ -1073,7 +1388,9 @@ float MyDPSEngine::GetBattleDPS() const
 float MyDPSEngine::GetBattleDuration() const
 {
 	if (!inCombat)
+	{
 		return 0.0f;
+	}
 	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::steady_clock::now() - battleStartTime).count();
 	return std::max(1.0f, elapsed / 1000.0f);
@@ -1081,23 +1398,46 @@ float MyDPSEngine::GetBattleDuration() const
 
 bool MyDPSEngine::IsMyChatLoaded() const
 {
-	return m_myChatLoaded;
+	return mqmychat::GetChatAPI() != nullptr;
 }
 
 void MyDPSEngine::SendToMyChat(const std::string& message)
 {
-	if (!m_myChatLoaded)
-		return;
+	if (mqmychat::ChatAPI* chat = mqmychat::GetChatAPI())
+		chat->Send("MyDPS", message);
+}
 
-	char szBuffer[MAX_STRING] = {};
-	sprintf_s(szBuffer, "${MyChat.Send[MyDPS,%s]}", message.c_str());
-	ParseMacroData(szBuffer, MAX_STRING);
+void MyDPSEngine::Output(const std::string& message)
+{
+	if (mqmychat::ChatAPI* chat = mqmychat::GetChatAPI())
+		chat->Send("MyDPS", message);
+	else
+		WriteChatf("%s", message.c_str());
+}
+
+void MyDPSEngine::DebugOutput(const std::string& message)
+{
+	if (settings.debugMode)
+	{
+		Output(message);
+	}
+}
+
+void MyDPSEngine::ReloadPatterns()
+{
+	m_patternEngine->UnregisterPetEvents();
+	m_patternEngine->UnregisterEvents();
+	m_patternEngine->LoadPatterns(serverName, charName);
+	m_patternEngine->RegisterEvents();
+	m_currentPetName.clear();
 }
 
 std::string MyDPSEngine::GetSettingsPath() const
 {
 	if (serverName.empty() || charName.empty())
+	{
 		return {};
+	}
 
 	std::string path = fmt::format("{}\\MQMyDPS\\{}\\{}.ini", gPathConfig, serverName, charName);
 	return path;

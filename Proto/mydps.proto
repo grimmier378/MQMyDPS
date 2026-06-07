@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package mq.proto.mydps;
+
+message LiveSnapshot {
+    string server = 1;
+    string character = 2;
+    string class_short = 3;
+    bool in_combat = 4;
+    float dps = 5;
+    int64 total_damage = 6;
+    int32 hit_count = 7;
+    int64 crit_damage = 8;
+    int64 dot_damage = 9;
+    int64 pet_damage = 10;
+    int64 non_melee_damage = 11;
+    int64 ds_damage = 12;
+    int64 direct_heals = 13;
+    int64 crit_heals = 14;
+    float duration_seconds = 15;
+}
+
+message FinalizedBattle {
+    string server = 1;
+    string character = 2;
+    int32 battle_number = 3;
+    int64 total_damage = 4;
+    int64 crit_damage = 5;
+    int64 dot_damage = 6;
+    int64 pet_damage = 7;
+    int64 non_melee_damage = 8;
+    int64 ds_damage = 9;
+    int64 direct_heals = 10;
+    int64 crit_heals = 11;
+    int32 hit_count = 12;
+    float duration_seconds = 13;
+    float dps = 14;
+    float avg_damage = 15;
+    int64 start_time_ms = 16;
+}
+
+message SessionStats {
+    string server = 1;
+    string character = 2;
+    string class_short = 3;
+    int64 total_damage = 4;
+    int64 total_heals = 5;
+    float session_dps = 6;
+    int32 battle_count = 7;
+}
+
+message MyDPSEnvelope {
+    oneof payload {
+        LiveSnapshot live = 1;
+        FinalizedBattle battle = 2;
+        SessionStats session = 3;
+    }
+}

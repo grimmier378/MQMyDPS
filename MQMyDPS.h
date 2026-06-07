@@ -2,13 +2,14 @@
 
 #include "MyDPSData.h"
 #include "MyDPSFloatingText.h"
+#include "MyDPSActors.h"
 
 #include <chrono>
 #include <deque>
 #include <unordered_map>
 #include <vector>
 
-class MyDPSParser;
+class MyDPSPatternEngine;
 
 class MyDPSEngine
 {
@@ -42,6 +43,7 @@ public:
 	std::vector<BattleData>                             battleHistory;
 	std::unordered_map<std::string, HealTargetData>     currentHealTargets;
 	FCTManager                                          fctManager;
+	MyDPSActors                                         actors;
 
 	std::unordered_map<int, TargetDamageData>            cachedSessionTargets;
 	std::vector<TargetDamageData>                        sortedSessionTargets;
@@ -75,16 +77,23 @@ public:
 	int     sessionHitCount   = 0;
 	std::chrono::steady_clock::time_point sessionStartTime;
 	std::chrono::steady_clock::time_point battleStartTime;
+	int64_t                               battleStartWallMs = 0;
 
 	float GetSessionDPS() const;
 	float GetBattleDPS() const;
 	float GetBattleDuration() const;
 
+	void  ReloadPatterns();
 	bool  IsMyChatLoaded() const;
 	void  SendToMyChat(const std::string& message);
+	void  Output(const std::string& message);
+	void  DebugOutput(const std::string& message);
+
+	MyDPSPatternEngine* GetPatternEngine() { return m_patternEngine.get(); }
 
 private:
-	std::unique_ptr<MyDPSParser>            m_parser;
+	std::unique_ptr<MyDPSPatternEngine>     m_patternEngine;
+	std::string                             m_currentPetName;
 	std::chrono::steady_clock::time_point   m_leftCombatTime;
 	bool                                    m_combatEndPending = false;
 
