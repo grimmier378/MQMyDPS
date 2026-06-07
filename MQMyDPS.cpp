@@ -396,15 +396,12 @@ void MyDPSEngine::LoadCharacterSettings()
 	}
 	settings.debugMode        = GetPrivateProfileBool("Group", "Debug", false, path);
 
-	char buf[64] = {};
-	GetPrivateProfileString("Options", "FontScale", "1.0", buf, sizeof(buf), path);
-	settings.fontScale = static_cast<float>(atof(buf));
+	settings.fontScale = GetPrivateProfileFloat("Options", "FontScale", 1.0f, path);
 	if (settings.fontScale < 0.5f || settings.fontScale > 2.0f)
 	{
 		settings.fontScale = 1.0f;
 	}
-	GetPrivateProfileString("Options", "SpamFontScale", "1.0", buf, sizeof(buf), path);
-	settings.spamFontScale = static_cast<float>(atof(buf));
+	settings.spamFontScale = GetPrivateProfileFloat("Options", "SpamFontScale", 1.0f, path);
 	if (settings.spamFontScale < 0.5f || settings.spamFontScale > 2.0f)
 	{
 		settings.spamFontScale = 1.0f;
@@ -428,44 +425,37 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.showFCT_Icons     = GetPrivateProfileBool("FCT", "Icons", true, path);
 	settings.fctDistinctMelee  = GetPrivateProfileBool("FCT", "DistinctMelee", true, path);
 	settings.fctUseSpellIcons  = GetPrivateProfileBool("FCT", "UseSpellIcons", false, path);
-	GetPrivateProfileString("FCT", "IconScale", "1.0", buf, sizeof(buf), path);
-	settings.fctIconScale = static_cast<float>(atof(buf));
+	settings.fctIconScale = GetPrivateProfileFloat("FCT", "IconScale", 1.0f, path);
 	if (settings.fctIconScale < 0.1f || settings.fctIconScale > 1.0f)
 	{
 		settings.fctIconScale = 1.0f;
 	}
-	GetPrivateProfileString("FCT", "FloatDistance", "150.0", buf, sizeof(buf), path);
-	settings.fctFloatDistance = static_cast<float>(atof(buf));
+	settings.fctFloatDistance = GetPrivateProfileFloat("FCT", "FloatDistance", 150.0f, path);
 	if (settings.fctFloatDistance < 30.0f || settings.fctFloatDistance > 300.0f)
 	{
 		settings.fctFloatDistance = 150.0f;
 	}
-	GetPrivateProfileString("FCT", "ArcScale", "1.0", buf, sizeof(buf), path);
-	settings.fctArcScale = static_cast<float>(atof(buf));
+	settings.fctArcScale = GetPrivateProfileFloat("FCT", "ArcScale", 1.0f, path);
 	if (settings.fctArcScale < 0.0f || settings.fctArcScale > 3.0f)
 	{
 		settings.fctArcScale = 1.0f;
 	}
-	GetPrivateProfileString("FCT", "Lifetime", "2.5", buf, sizeof(buf), path);
-	settings.fctLifetime = static_cast<float>(atof(buf));
+	settings.fctLifetime = GetPrivateProfileFloat("FCT", "Lifetime", 2.5f, path);
 	if (settings.fctLifetime < 1.0f || settings.fctLifetime > 5.0f)
 	{
 		settings.fctLifetime = 2.5f;
 	}
-	GetPrivateProfileString("FCT", "BaseFontSize", "24.0", buf, sizeof(buf), path);
-	settings.fctBaseFontSize = static_cast<float>(atof(buf));
+	settings.fctBaseFontSize = GetPrivateProfileFloat("FCT", "BaseFontSize", 24.0f, path);
 	if (settings.fctBaseFontSize < 12.0f || settings.fctBaseFontSize > 48.0f)
 	{
 		settings.fctBaseFontSize = 24.0f;
 	}
-	GetPrivateProfileString("FCT", "FontScale", "1.5", buf, sizeof(buf), path);
-	settings.fctFontScale = static_cast<float>(atof(buf));
+	settings.fctFontScale = GetPrivateProfileFloat("FCT", "FontScale", 1.5f, path);
 	if (settings.fctFontScale < 0.5f || settings.fctFontScale > 3.0f)
 	{
 		settings.fctFontScale = 1.5f;
 	}
-	GetPrivateProfileString("FCT", "ShadowOffset", "2.0", buf, sizeof(buf), path);
-	settings.fctShadowOffset = static_cast<float>(atof(buf));
+	settings.fctShadowOffset = GetPrivateProfileFloat("FCT", "ShadowOffset", 2.0f, path);
 	if (settings.fctShadowOffset < 0.0f || settings.fctShadowOffset > 5.0f)
 	{
 		settings.fctShadowOffset = 2.0f;
@@ -476,8 +466,7 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.fctIconOverrides.clear();
 	for (const auto& info : GetFCTTypeInfoList())
 	{
-		GetPrivateProfileString("FCTIcons", info.key, "-1", buf, sizeof(buf), path);
-		int id = atoi(buf);
+		int id = GetPrivateProfileInt("FCTIcons", info.key, -1, path);
 		if (id >= 0 || id == FCT_ICON_NONE)
 		{
 			settings.fctIconOverrides[info.key] = { id, id >= FCT_ITEM_ICON_OFFSET };
@@ -529,9 +518,8 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileInt("Group", "FilterMode", settings.peerFilterMode, path);
 	WritePrivateProfileBool("Group", "Debug", settings.debugMode, path);
 
-	auto floatStr = [](float v) { return fmt::format("{:.2f}", v); };
-	WritePrivateProfileString("Options", "FontScale", floatStr(settings.fontScale), path);
-	WritePrivateProfileString("Options", "SpamFontScale", floatStr(settings.spamFontScale), path);
+	WritePrivateProfileFloat("Options", "FontScale", settings.fontScale, path);
+	WritePrivateProfileFloat("Options", "SpamFontScale", settings.spamFontScale, path);
 	WritePrivateProfileInt("Options", "ThemeIdx", settings.themeIdx, path);
 
 	WritePrivateProfileBool("Windows", "ShowMain", showMainWindow, path);
@@ -551,13 +539,13 @@ void MyDPSEngine::SaveCharacterSettings()
 	WritePrivateProfileBool("FCT", "Icons", settings.showFCT_Icons, path);
 	WritePrivateProfileBool("FCT", "DistinctMelee", settings.fctDistinctMelee, path);
 	WritePrivateProfileBool("FCT", "UseSpellIcons", settings.fctUseSpellIcons, path);
-	WritePrivateProfileString("FCT", "IconScale", floatStr(settings.fctIconScale), path);
-	WritePrivateProfileString("FCT", "FloatDistance", floatStr(settings.fctFloatDistance), path);
-	WritePrivateProfileString("FCT", "ArcScale", floatStr(settings.fctArcScale), path);
-	WritePrivateProfileString("FCT", "Lifetime", floatStr(settings.fctLifetime), path);
-	WritePrivateProfileString("FCT", "BaseFontSize", floatStr(settings.fctBaseFontSize), path);
-	WritePrivateProfileString("FCT", "FontScale", floatStr(settings.fctFontScale), path);
-	WritePrivateProfileString("FCT", "ShadowOffset", floatStr(settings.fctShadowOffset), path);
+	WritePrivateProfileFloat("FCT", "IconScale", settings.fctIconScale, path);
+	WritePrivateProfileFloat("FCT", "FloatDistance", settings.fctFloatDistance, path);
+	WritePrivateProfileFloat("FCT", "ArcScale", settings.fctArcScale, path);
+	WritePrivateProfileFloat("FCT", "Lifetime", settings.fctLifetime, path);
+	WritePrivateProfileFloat("FCT", "BaseFontSize", settings.fctBaseFontSize, path);
+	WritePrivateProfileFloat("FCT", "FontScale", settings.fctFontScale, path);
+	WritePrivateProfileFloat("FCT", "ShadowOffset", settings.fctShadowOffset, path);
 	WritePrivateProfileInt("FCT", "BonePlayer", settings.fctBonePlayer, path);
 	WritePrivateProfileInt("FCT", "BoneOther",  settings.fctBoneOther,  path);
 
@@ -565,7 +553,7 @@ void MyDPSEngine::SaveCharacterSettings()
 	{
 		auto it = settings.fctIconOverrides.find(info.key);
 		int id = (it != settings.fctIconOverrides.end()) ? it->second.iconID : -1;
-		WritePrivateProfileString("FCTIcons", info.key, std::to_string(id).c_str(), path);
+		WritePrivateProfileInt("FCTIcons", info.key, id, path);
 	}
 
 	for (const auto& [key, color] : settings.damageColors)

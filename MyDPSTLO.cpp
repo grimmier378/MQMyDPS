@@ -190,11 +190,9 @@ bool MyDPSType::GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTy
 		{
 			const TargetDamageData* data = nullptr;
 
-			char* end = nullptr;
-			long idx = strtol(Index, &end, 10);
-			if (end != Index && *end == '\0')
+			if (IsNumber(Index))
 			{
-				data = FindTargetBySpawnID(static_cast<int>(idx));
+				data = FindTargetBySpawnID(GetIntFromString(Index, 0));
 			}
 			else
 			{
