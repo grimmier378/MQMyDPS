@@ -4,6 +4,7 @@
 
 #include <mq/Plugin.h>
 #include <mq/imgui/Widgets.h>
+#include <eqlib/BuildType.h>
 #include <eqlib/graphics/CameraInterface.h>
 #include <eqlib/graphics/Bones.h>
 #include <eqlib/graphics/Actors.h>
@@ -300,8 +301,7 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 		return false;
 	}
 
-	CCamera* camera = static_cast<eqlib::CCamera*>(pDisplay->pCamera);
-	if (!camera)
+	if (!pDisplay || !pDisplay->pCamera)
 	{
 		return false;
 	}
@@ -309,8 +309,12 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 	glm::vec3 worldPos;
 
 	CActorInterface* pActor = pSpawn->mActorClient.pActor;
-	EBones boneIdx = static_cast<EBones>(
-		(pSpawn->Type == SPAWN_PLAYER) ? bonePlayer : boneOther);
+	int rawBone = (pSpawn->Type == SPAWN_PLAYER) ? bonePlayer : boneOther;
+#if IS_EMU_CLIENT
+	EBones boneIdx = static_cast<EBones>(rawBone);
+#else
+	int boneIdx = rawBone;
+#endif
 	if (pActor && pActor->GetBoneByIndex(boneIdx))
 	{
 		pActor->GetBoneWorldPosition(boneIdx, reinterpret_cast<CVector3*>(&worldPos), false);
@@ -320,28 +324,15 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 		worldPos = glm::vec3(pSpawn->Y, pSpawn->X, pSpawn->Z + pSpawn->AvatarHeight);
 	}
 
-	glm::vec3 eyeOffset;
-	pGraphicsEngine->pRender->GetEyeOffset(*reinterpret_cast<CVector3*>(&eyeOffset));
-	worldPos += eyeOffset;
-
-	float Ez = glm::dot(worldPos, glm::vec3(
-		camera->worldToEyeCoef[0][2],
-		camera->worldToEyeCoef[1][2],
-		camera->worldToEyeCoef[2][2]));
-
-	if (Ez <= 0.0f)
+	if (pGraphicsEngine && pGraphicsEngine->pRender)
 	{
-		return false;
+		glm::vec3 eyeOffset;
+		pGraphicsEngine->pRender->GetEyeOffset(*reinterpret_cast<CVector3*>(&eyeOffset));
+		worldPos += eyeOffset;
 	}
 
-	float Ex = glm::dot(worldPos, camera->worldToEyeXAxisCot);
-	float Ey = glm::dot(worldPos, camera->worldToEyeYAxisCotAspect);
-
-	float reci = 1.0f / Ez;
-	outX = Ex * reci * camera->halfRenderWidth + camera->halfRenderWidth + camera->left;
-	outY = -Ey * reci * camera->halfRenderHeight + camera->halfRenderHeight + camera->top;
-
-	return true;
+	return pDisplay->pCamera->ProjectWorldCoordinatesToScreen(
+		*reinterpret_cast<const CVector3*>(&worldPos), outX, outY);
 }
 
 inline void FCTManager::Render(const MyDPSSettings& settings)
