@@ -331,8 +331,26 @@ inline bool FCTManager::ProjectSpawnToScreen(int spawnID, float& outX, float& ou
 		worldPos += eyeOffset;
 	}
 
-	return pDisplay->pCamera->ProjectWorldCoordinatesToScreen(
-		*reinterpret_cast<const CVector3*>(&worldPos), outX, outY);
+	CCamera* camera = static_cast<eqlib::CCamera*>(pDisplay->pCamera);
+
+	float Ez = glm::dot(worldPos, glm::vec3(
+		camera->worldToEyeCoef[0][2],
+		camera->worldToEyeCoef[1][2],
+		camera->worldToEyeCoef[2][2]));
+
+	if (Ez <= 0.0f)
+	{
+		return false;
+	}
+
+	float Ex = glm::dot(worldPos, camera->worldToEyeXAxisCot);
+	float Ey = glm::dot(worldPos, camera->worldToEyeYAxisCotAspect);
+
+	float reci = 1.0f / Ez;
+	outX = Ex * reci * camera->halfRenderWidth + camera->halfRenderWidth + camera->left;
+	outY = -Ey * reci * camera->halfRenderHeight + camera->halfRenderHeight + camera->top;
+
+	return true;
 }
 
 inline void FCTManager::Render(const MyDPSSettings& settings)
