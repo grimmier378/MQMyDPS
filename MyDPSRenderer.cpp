@@ -228,7 +228,7 @@ const char* MyDPSRenderer::TabName(int tab)
 	case TAB_TARGETS: return "Targets";
 	case TAB_HEALING: return "Healing";
 	case TAB_GRAPHS:  return "Graphs";
-	case TAB_GROUP:   return "Group";
+	case TAB_GROUP:   return "Peers";
 	default:          return "?";
 	}
 }
@@ -1101,6 +1101,11 @@ void MyDPSRenderer::RenderPeerLiveMeter(MyDPSEngine& engine)
 
 	int cols = 3 + (wide ? 3 : 0) + (wider ? 3 : 0);
 
+	auto C = [&](const char* key) -> ImVec4 {
+		auto it = engine.settings.damageColors.find(key);
+		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+	};
+
 	if (ImGui::BeginTable("PeerLiveMeter", cols,
 		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp))
 	{
@@ -1126,18 +1131,18 @@ void MyDPSRenderer::RenderPeerLiveMeter(MyDPSEngine& engine)
 			ImGui::TableNextRow();
 			ImGui::TableNextColumn();
 			ImGui::TextColored(p->color, "%s%s", p->character.c_str(), p->isSelf ? " (you)" : "");
-			ImGui::TableNextColumn(); ImGui::Text("%.1f", p->liveDPS);
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveTotal).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("dps"), "%.1f", p->liveDPS);
+			ImGui::TableNextColumn(); ImGui::TextColored(C("total"), "%s", FormatNumber(p->liveTotal).c_str());
 			if (wider)
 			{
-				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveCrit).c_str());
-				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveDot).c_str());
-				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->livePet).c_str());
+				ImGui::TableNextColumn(); ImGui::TextColored(C("crit"), "%s", FormatNumber(p->liveCrit).c_str());
+				ImGui::TableNextColumn(); ImGui::TextColored(C("dot"), "%s", FormatNumber(p->liveDot).c_str());
+				ImGui::TableNextColumn(); ImGui::TextColored(C("pet"), "%s", FormatNumber(p->livePet).c_str());
 			}
 			if (wide)
 			{
-				ImGui::TableNextColumn(); ImGui::Text("%d", p->liveHits);
-				ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveHeals).c_str());
+				ImGui::TableNextColumn(); ImGui::TextColored(C("total"), "%d", p->liveHits);
+				ImGui::TableNextColumn(); ImGui::TextColored(C("heal"), "%s", FormatNumber(p->liveHeals).c_str());
 				ImGui::TableNextColumn();
 				if (p->inCombat)
 				{
@@ -1216,6 +1221,11 @@ void MyDPSRenderer::RenderGroupLive(MyDPSEngine& engine, const std::vector<const
 		return;
 	}
 
+	auto C = [&](const char* key) -> ImVec4 {
+		auto it = engine.settings.damageColors.find(key);
+		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+	};
+
 	if (ImGui::BeginTable("GroupLive", 11,
 		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
 		| ImGuiTableFlags_Hideable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_ScrollY))
@@ -1239,14 +1249,14 @@ void MyDPSRenderer::RenderGroupLive(MyDPSEngine& engine, const std::vector<const
 			ImGui::TableNextColumn();
 			ImGui::TextColored(p->color, "%s%s", p->character.c_str(), p->isSelf ? " (you)" : "");
 			ImGui::TableNextColumn(); ImGui::TextUnformatted(p->classShort.c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%.1f", p->liveDPS);
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveTotal).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%d", p->liveHits);
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveCrit).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveDot).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->livePet).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveNonMelee).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(p->liveHeals).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("dps"), "%.1f", p->liveDPS);
+			ImGui::TableNextColumn(); ImGui::TextColored(C("total"), "%s", FormatNumber(p->liveTotal).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("total"), "%d", p->liveHits);
+			ImGui::TableNextColumn(); ImGui::TextColored(C("crit"), "%s", FormatNumber(p->liveCrit).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("dot"), "%s", FormatNumber(p->liveDot).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("pet"), "%s", FormatNumber(p->livePet).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("non-melee"), "%s", FormatNumber(p->liveNonMelee).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("heal"), "%s", FormatNumber(p->liveHeals).c_str());
 			ImGui::TableNextColumn();
 			if (p->inCombat)
 			{
@@ -1275,6 +1285,11 @@ void MyDPSRenderer::RenderGroupHistory(MyDPSEngine& engine, const std::vector<co
 		ImGui::TextDisabled("No finalized battles yet.");
 		return;
 	}
+
+	auto C = [&](const char* key) -> ImVec4 {
+		auto it = engine.settings.damageColors.find(key);
+		return it != engine.settings.damageColors.end() ? it->second : ImVec4(1, 1, 1, 1);
+	};
 
 	if (ImGui::BeginTable("GroupHistory", 5,
 		ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
@@ -1312,9 +1327,9 @@ void MyDPSRenderer::RenderGroupHistory(MyDPSEngine& engine, const std::vector<co
 			bool expanded = ImGui::TreeNodeEx("##e", ImGuiTreeNodeFlags_SpanAvailWidth,
 				"%s  (%.0fs, %d players)", FormatClock(e.startMs).c_str(), durS, playerCount);
 			ImGui::TableNextColumn(); ImGui::TextDisabled("-");
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(sumDmg).c_str());
-			ImGui::TableNextColumn(); ImGui::Text("%.0fs", durS);
-			ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(sumHeals).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("total"), "%s", FormatNumber(sumDmg).c_str());
+			ImGui::TableNextColumn(); ImGui::TextColored(C("duration"), "%.0fs", durS);
+			ImGui::TableNextColumn(); ImGui::TextColored(C("heal"), "%s", FormatNumber(sumHeals).c_str());
 
 			if (expanded)
 			{
@@ -1330,10 +1345,10 @@ void MyDPSRenderer::RenderGroupHistory(MyDPSEngine& engine, const std::vector<co
 					ImGui::TableNextColumn();
 					ImGui::TextColored(c.peer->color, "  %s%s",
 						c.peer->character.c_str(), c.peer->isSelf ? " (you)" : "");
-					ImGui::TableNextColumn(); ImGui::Text("%.1f", cdps);
-					ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(c.damage).c_str());
-					ImGui::TableNextColumn(); ImGui::Text("%.0fs", c.activeDurS);
-					ImGui::TableNextColumn(); ImGui::Text("%s", FormatNumber(c.heals).c_str());
+					ImGui::TableNextColumn(); ImGui::TextColored(C("dps"), "%.1f", cdps);
+					ImGui::TableNextColumn(); ImGui::TextColored(C("total"), "%s", FormatNumber(c.damage).c_str());
+					ImGui::TableNextColumn(); ImGui::TextColored(C("duration"), "%.0fs", c.activeDurS);
+					ImGui::TableNextColumn(); ImGui::TextColored(C("heal"), "%s", FormatNumber(c.heals).c_str());
 				}
 				ImGui::TreePop();
 			}
