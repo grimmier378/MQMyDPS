@@ -2,6 +2,7 @@
 #include "MQMyDPS.h"
 #include "MyDPSPatternEngine.h"
 #include "Theme.h"
+#include "Widgets.h"
 
 #include <mq/Plugin.h>
 #include <mq/imgui/Widgets.h>
@@ -173,39 +174,55 @@ void MyDPSRenderer::RenderMainWindow(MyDPSEngine& engine)
 			ImGui::EndMenuBar();
 		}
 
-		if (ImGui::BeginTabBar("DPSTabs"))
+		int         visibleTabs[TAB_COUNT];
+		const char* visibleLabels[TAB_COUNT];
+		int         visibleCount = 0;
+		for (int t = 0; t < TAB_COUNT; ++t)
 		{
-			for (int t = 0; t < TAB_COUNT; ++t)
+			if (m_tabPopOut[t])
 			{
-				if (m_tabPopOut[t])
-				{
-					continue;
-				}
+				continue;
+			}
+			visibleTabs[visibleCount]   = t;
+			visibleLabels[visibleCount] = TabName(t);
+			++visibleCount;
+		}
 
-				bool open = ImGui::BeginTabItem(TabName(t));
-				if (ImGui::BeginPopupContextItem())
+		if (visibleCount > 0)
+		{
+			int curIdx = 0;
+			for (int i = 0; i < visibleCount; ++i)
+			{
+				if (visibleTabs[i] == m_mainTab)
 				{
-					if (ImGui::MenuItem("Pop Out"))
-					{
-						m_tabPopOut[t] = true;
-					}
-					ImGui::EndPopup();
-				}
-
-				if (open)
-				{
-					ImGui::PushID(t);
-					if (ImGui::BeginChild("##TabChild", ImVec2(0, 0), ImGuiChildFlags_None))
-					{
-						RenderTabBody(engine, t);
-					}
-					ImGui::EndChild();
-					ImGui::PopID();
-					ImGui::EndTabItem();
+					curIdx = i;
+					break;
 				}
 			}
 
-			ImGui::EndTabBar();
+			int selIdx = myui::PillTabBar("DPSTabs", visibleLabels, visibleCount, curIdx);
+			if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+			{
+				ImGui::OpenPopup("##DPSTabPopOut");
+			}
+			m_mainTab = visibleTabs[selIdx];
+
+			if (ImGui::BeginPopup("##DPSTabPopOut"))
+			{
+				if (ImGui::MenuItem("Pop Out"))
+				{
+					m_tabPopOut[m_mainTab] = true;
+				}
+				ImGui::EndPopup();
+			}
+
+			ImGui::PushID(m_mainTab);
+			if (ImGui::BeginChild("##TabChild", ImVec2(0, 0), ImGuiChildFlags_None))
+			{
+				RenderTabBody(engine, m_mainTab);
+			}
+			ImGui::EndChild();
+			ImGui::PopID();
 		}
 
 		ImGui::PopFont();
@@ -634,13 +651,13 @@ void MyDPSRenderer::RenderGraphs(MyDPSEngine& engine)
 		return;
 	}
 
-	ImGui::Checkbox("DPS Graph", &m_showDpsGraph);
+	myui::StyledCheckbox("DPS Graph", &m_showDpsGraph);
 	ImGui::SameLine();
-	ImGui::Checkbox("Damage Breakdown", &m_showDmgGraph);
+	myui::StyledCheckbox("Damage Breakdown", &m_showDmgGraph);
 	ImGui::SameLine();
-	ImGui::Checkbox("Bar Chart", &m_showBarChart);
+	myui::StyledCheckbox("Bar Chart", &m_showBarChart);
 	ImGui::SameLine();
-	ImGui::Checkbox("Pie Chart", &m_showPieChart);
+	myui::StyledCheckbox("Pie Chart", &m_showPieChart);
 
 	RebuildGraphCache(engine);
 
@@ -723,7 +740,7 @@ void MyDPSRenderer::RenderScrollBar(const char* id, MyDPSRenderer::GraphScrollSt
 		int count = std::min(GRAPH_WINDOW, maxBack - scroll.offset);
 
 		ImGui::SetNextItemWidth(-1);
-		ImGui::SliderInt(id, &scroll.offset, 0, maxOffset,
+		myui::StyledSliderInt(id, &scroll.offset, 0, maxOffset,
 			fmt::format("Battles {}-{} of {}", startIdx + 1, startIdx + count, totalBattles).c_str());
 
 		if (scroll.offset != prev)
@@ -1090,7 +1107,7 @@ void MyDPSRenderer::RenderPeerLiveMeter(MyDPSEngine& engine)
 		return;
 	}
 
-	if (!ImGui::CollapsingHeader("Group Live DPS", ImGuiTreeNodeFlags_DefaultOpen))
+	if (!myui::BeginAnimatedHeader("Group Live DPS", true))
 	{
 		return;
 	}
@@ -1156,12 +1173,13 @@ void MyDPSRenderer::RenderPeerLiveMeter(MyDPSEngine& engine)
 		}
 		ImGui::EndTable();
 	}
+	myui::EndAnimatedHeader();
 	ImGui::Separator();
 }
 
 void MyDPSRenderer::RenderGroup(MyDPSEngine& engine)
 {
-	ImGui::Checkbox("Show Peers", &engine.settings.showPeers);
+	myui::StyledCheckbox("Show Peers", &engine.settings.showPeers);
 	ImGui::SameLine();
 	ImGui::TextDisabled("|");
 	ImGui::SameLine();
@@ -1180,37 +1198,21 @@ void MyDPSRenderer::RenderGroup(MyDPSEngine& engine)
 
 	auto peers = engine.actors.VisiblePeers(static_cast<PeerFilterMode>(engine.settings.peerFilterMode));
 
-	if (ImGui::BeginTabBar("##GroupSub"))
+	static const char* const subLabels[] = { "Live", "History", "Graphs" };
+	m_groupSubTab = myui::PillTabBar("##GroupSub", subLabels, 3, m_groupSubTab);
+
+	ImGuiChildFlags childFlags = (m_groupSubTab == 2) ? ImGuiChildFlags_Borders : ImGuiChildFlags_None;
+	if (ImGui::BeginChild("##GroupSubChild", ImVec2(0, 0), childFlags))
 	{
-		if (ImGui::BeginTabItem("Live"))
+		switch (m_groupSubTab)
 		{
-			if (ImGui::BeginChild("##GroupLiveChild", ImVec2(0, 0), ImGuiChildFlags_None))
-			{
-				RenderGroupLive(engine, peers);
-			}
-			ImGui::EndChild();
-			ImGui::EndTabItem();
+		case 0: RenderGroupLive(engine, peers); break;
+		case 1: RenderGroupHistory(engine, peers); break;
+		case 2: RenderGroupGraphs(engine, peers); break;
+		default: break;
 		}
-		if (ImGui::BeginTabItem("History"))
-		{
-			if (ImGui::BeginChild("##GroupHistChild", ImVec2(0, 0), ImGuiChildFlags_None))
-			{
-				RenderGroupHistory(engine, peers);
-			}
-			ImGui::EndChild();
-			ImGui::EndTabItem();
-		}
-		if (ImGui::BeginTabItem("Graphs"))
-		{
-			if (ImGui::BeginChild("##GroupGraphChild", ImVec2(0, 0), ImGuiChildFlags_Borders))
-			{
-				RenderGroupGraphs(engine, peers);
-			}
-			ImGui::EndChild();
-			ImGui::EndTabItem();
-		}
-		ImGui::EndTabBar();
 	}
+	ImGui::EndChild();
 }
 
 void MyDPSRenderer::RenderGroupLive(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers)
@@ -1544,9 +1546,10 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 
 	struct BoolEntry { const char* label; bool* value; };
 
-	if (ImGui::BeginTabBar("ConfigTabs"))
+	const char* const cfgLabels[] = { "Display", "Colors", "FCT", "Theme", "Patterns" };
+	m_configTab = myui::PillTabBar("ConfigTabs", cfgLabels, 5, m_configTab);
 	{
-		if (ImGui::BeginTabItem("Display"))
+		if (m_configTab == 0)
 		{
 			if (ImGui::BeginChild("##DisplayChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
@@ -1574,28 +1577,27 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					for (auto& [label, val] : bools)
 					{
 						ImGui::TableNextColumn();
-						ImGui::Checkbox(label, val);
+						myui::StyledCheckbox(label, val);
 					}
 					ImGui::EndTable();
 				}
 
 				ImGui::Spacing();
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderInt("Display Time (s)", &s.displayTime, 1, 60, "%d", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderInt("Display Time (s)", &s.displayTime, 1, 60, "%d", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderInt("Battle End Delay (s)", &s.battleEndDelay, 1, 30, "%d", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderInt("Battle End Delay (s)", &s.battleEndDelay, 1, 30, "%d", ImGuiSliderFlags_AlwaysClamp);
 
 				ImGui::Spacing();
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Font Scale", &s.fontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Font Scale", &s.fontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Output Font Scale", &s.spamFontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Output Font Scale", &s.spamFontScale, 0.5f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 			}
 			ImGui::EndChild();
-			ImGui::EndTabItem();
 		}
 
-		if (ImGui::BeginTabItem("Colors"))
+		if (m_configTab == 1)
 		{
 			if (ImGui::BeginChild("##ColorsChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
@@ -1624,16 +1626,15 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				}
 			}
 			ImGui::EndChild();
-			ImGui::EndTabItem();
 		}
 
-		if (ImGui::BeginTabItem("FCT"))
+		if (m_configTab == 2)
 		{
 			if (ImGui::BeginChild("##FCTChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
 				int sizeX = static_cast<int>(ImGui::GetWindowWidth());
 
-				ImGui::Checkbox("Enable FCT", &s.showFCT);
+				myui::StyledCheckbox("Enable FCT", &s.showFCT);
 
 				BoolEntry fctBools[] = {
 					{ "Melee",      &s.showFCT_Melee },
@@ -1657,7 +1658,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 					for (auto& [label, val] : fctBools)
 					{
 						ImGui::TableNextColumn();
-						ImGui::Checkbox(label, val);
+						myui::StyledCheckbox(label, val);
 					}
 					ImGui::EndTable();
 				}
@@ -1758,19 +1759,19 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				ImGui::Separator();
 
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Base Font Size", &s.fctBaseFontSize, 12.0f, 48.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Font Scale", &s.fctFontScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Font Scale", &s.fctFontScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Icon Scale", &s.fctIconScale, 0.1f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Icon Scale", &s.fctIconScale, 0.1f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Float Distance", &s.fctFloatDistance, 30.0f, 300.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Float Distance", &s.fctFloatDistance, 30.0f, 300.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Arc Scale", &s.fctArcScale, 0.0f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Arc Scale", &s.fctArcScale, 0.0f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Shadow Offset", &s.fctShadowOffset, 0.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 				ImGui::SetNextItemWidth(100);
-				ImGui::SliderFloat("Lifetime (s)", &s.fctLifetime, 1.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+				myui::StyledSliderFloat("Lifetime (s)", &s.fctLifetime, 1.0f, 5.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 
 				ImGui::Separator();
 				ImGui::Text("Bone Anchors");
@@ -1778,7 +1779,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				const auto& bones = GetFCTBoneList();
 
 				ImGui::SetNextItemWidth(150);
-				if (ImGui::BeginCombo("Player Bone", GetBoneLabelByIndex(s.fctBonePlayer)))
+				if (myui::StyledBeginCombo("Player Bone", GetBoneLabelByIndex(s.fctBonePlayer)))
 				{
 					for (int i = 0; i < static_cast<int>(bones.size()); ++i)
 					{
@@ -1786,50 +1787,40 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 						{
 							ImGui::Separator();
 						}
-						bool isSelected = (s.fctBonePlayer == bones[i].index);
-						if (ImGui::Selectable(bones[i].label, isSelected))
+						if (myui::PillSelectable(bones[i].label, s.fctBonePlayer == bones[i].index))
 						{
 							s.fctBonePlayer = bones[i].index;
 						}
-						if (isSelected)
-						{
-							ImGui::SetItemDefaultFocus();
-						}
 					}
-					ImGui::EndCombo();
+					myui::StyledEndCombo();
 				}
 
 				ImGui::SetNextItemWidth(150);
-				if (ImGui::BeginCombo("Other Bone", GetBoneLabelByIndex(s.fctBoneOther)))
+				if (myui::StyledBeginCombo("Other Bone", GetBoneLabelByIndex(s.fctBoneOther)))
 				{
 					for (int i = 0; i < static_cast<int>(bones.size()); ++i)
 					{
 						if (i == 6)
 							ImGui::Separator();
-						bool isSelected = (s.fctBoneOther == bones[i].index);
-						if (ImGui::Selectable(bones[i].label, isSelected))
+						if (myui::PillSelectable(bones[i].label, s.fctBoneOther == bones[i].index))
 							s.fctBoneOther = bones[i].index;
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
 					}
-					ImGui::EndCombo();
+					myui::StyledEndCombo();
 				}
 			}
 			ImGui::EndChild();
-			ImGui::EndTabItem();
 		}
 
-		if (ImGui::BeginTabItem("Theme"))
+		if (m_configTab == 3)
 		{
 			if (ImGui::BeginChild("##ThemeChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
 				s.themeIdx = ImGuiTheme::DrawThemePicker(s.themeIdx, "Theme##DPSTheme");
 			}
 			ImGui::EndChild();
-			ImGui::EndTabItem();
 		}
 
-		if (ImGui::BeginTabItem("Patterns"))
+		if (m_configTab == 4)
 		{
 			if (ImGui::BeginChild("##PatternsChild", ImVec2(0, 0), ImGuiChildFlags_None))
 			{
@@ -1862,7 +1853,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							ImGui::TableNextRow();
 
 							ImGui::TableNextColumn();
-							ImGui::Checkbox("##en", &p.enabled);
+							myui::StyledCheckbox("##en", &p.enabled);
 
 							ImGui::TableNextColumn();
 							ImGui::TextUnformatted(p.key.c_str());
@@ -1899,7 +1890,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							ImGui::TableNextRow();
 
 							ImGui::TableNextColumn();
-							ImGui::Checkbox("##en", &p.enabled);
+							myui::StyledCheckbox("##en", &p.enabled);
 
 							ImGui::TableNextColumn();
 							ImGui::TextUnformatted(p.key.c_str());
@@ -1925,10 +1916,8 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				}
 			}
 			ImGui::EndChild();
-			ImGui::EndTabItem();
 		}
 
-		ImGui::EndTabBar();
 	}
 }
 
@@ -1984,24 +1973,12 @@ void MyDPSRenderer::RenderIconPicker(MyDPSEngine& engine)
 		return;
 	}
 
-	bool isItemTab = m_iconPickerShowItems;
-	if (ImGui::BeginTabBar("##IconPickerTabs"))
-	{
-		if (ImGui::BeginTabItem("Spell Icons"))
-		{
-			m_iconPickerShowItems = false;
-			ImGui::EndTabItem();
-		}
-		if (ImGui::BeginTabItem("Item Icons"))
-		{
-			m_iconPickerShowItems = true;
-			ImGui::EndTabItem();
-		}
-		ImGui::EndTabBar();
-	}
+	static const char* const pickerLabels[] = { "Spell Icons", "Item Icons" };
+	int pickerSel = myui::PillTabBar("##IconPickerTabs", pickerLabels, 2, m_iconPickerShowItems ? 1 : 0);
+	m_iconPickerShowItems = (pickerSel == 1);
 
 	ImGui::SetNextItemWidth(150);
-	ImGui::SliderFloat("Icon Size", &m_iconPickerScale, 0.5f, 3.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp);
+	myui::StyledSliderFloat("Icon Size", &m_iconPickerScale, 0.5f, 3.0f, "%.1fx", ImGuiSliderFlags_AlwaysClamp);
 
 	int maxIcon = m_iconPickerShowItems ? FCT_MAX_ITEM_ICON : FCT_MAX_SPELL_ICON;
 	int iconsPerPage = 500;
@@ -2011,7 +1988,7 @@ void MyDPSRenderer::RenderIconPicker(MyDPSEngine& engine)
 
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(150);
-	ImGui::SliderInt("Page", &m_iconPickerPage, 1, maxPage);
+	myui::StyledSliderInt("Page", &m_iconPickerPage, 1, maxPage);
 
 	float iconSize = 40.0f * m_iconPickerScale;
 	float spacing = ImGui::GetStyle().ItemSpacing.x;

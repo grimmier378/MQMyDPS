@@ -74,6 +74,7 @@
     <ClCompile Include="MyDPSRenderer.cpp" />
     <ClCompile Include="MyDPSTLO.cpp" />
     <ClCompile Include="MyDPSActors.cpp" />
+    <ClCompile Include="Widgets.cpp" />
     <ClCompile Include="Proto\mydps.pb.cc">
       <DependentUpon>mydps.proto</DependentUpon>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -92,6 +93,7 @@
     <ClInclude Include="MyDPSFloatingText.h" />
     <ClInclude Include="MyDPSTLO.h" />
     <ClInclude Include="MyDPSActors.h" />
+    <ClInclude Include="Widgets.h" />
     <ClInclude Include="MyChatAPI.h" />
     <ClInclude Include="Theme.h" />
     <ClInclude Include="Proto\mydps.pb.h">

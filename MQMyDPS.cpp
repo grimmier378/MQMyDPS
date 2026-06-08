@@ -5,6 +5,8 @@
 #include "MyDPSTLO.h"
 #include "MyChatAPI.h"
 
+#include "imgui/imanim/im_anim.h"
+
 #include <filesystem>
 #include <fmt/format.h>
 
@@ -13,6 +15,7 @@ PLUGIN_VERSION(0.1);
 
 MyDPSEngine* g_dpsEngine = nullptr;
 static MyDPSRenderer s_renderer;
+static iam_context* s_iamCtx = nullptr;
 
 static void MyDPSCommand(PlayerClient*, const char* szLine);
 static void DrawMyDPS_MQSettingsPanel();
@@ -34,6 +37,12 @@ PLUGIN_API void ShutdownPlugin()
 	g_dpsEngine->Shutdown();
 	delete g_dpsEngine;
 	g_dpsEngine = nullptr;
+
+	if (s_iamCtx)
+	{
+		iam_context_destroy(s_iamCtx);
+		s_iamCtx = nullptr;
+	}
 }
 
 PLUGIN_API void SetGameState(int GameState)
@@ -112,12 +121,22 @@ PLUGIN_API void OnUpdateImGui()
 		return;
 	}
 
+	if (!s_iamCtx)
+	{
+		s_iamCtx = iam_context_create();
+		iam_context_set_current(s_iamCtx);
+		iam_set_lazy_init(false);
+	}
+	iam_context* prevCtx = iam_context_set_current(s_iamCtx);
+
 	s_renderer.RenderMainWindow(*g_dpsEngine);
 	s_renderer.RenderPopOutWindows(*g_dpsEngine);
 	s_renderer.RenderConfigWindow(*g_dpsEngine);
 	s_renderer.RenderCombatSpam(*g_dpsEngine);
 	s_renderer.RenderFloatingText(*g_dpsEngine);
 	s_renderer.RenderIconPicker(*g_dpsEngine);
+
+	iam_context_set_current(prevCtx);
 }
 
 PLUGIN_API void OnBeginZone()

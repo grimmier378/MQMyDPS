@@ -71,6 +71,10 @@ private:
 
 	bool m_tabPopOut[TAB_COUNT] = {};
 
+	int m_mainTab     = 0;
+	int m_groupSubTab = 0;
+	int m_configTab   = 0;
+
 	GraphScrollState m_dpsScroll;
 	GraphScrollState m_dmgScroll;
 	GraphScrollState m_barScroll;

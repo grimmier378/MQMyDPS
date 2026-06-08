@@ -3,6 +3,7 @@
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
 #include "mq/base/String.h"
+#include "Widgets.h"
 
 /**
 * @namespace ImGuiTheme
@@ -817,18 +818,14 @@ namespace ImGuiTheme
 		if (selectedThemeIndex != themeIdx)
 			selectedThemeIndex = themeIdx;
 
-		if (ImGui::BeginCombo(winName, ThemeNames[selectedThemeIndex]))
+		if (myui::StyledBeginCombo(winName, ThemeNames[selectedThemeIndex]))
 		{
 			for (int i = 0; i < ThemeCount; ++i)
 			{
-				bool isSelected = (selectedThemeIndex == i);
-				if (ImGui::Selectable(ThemeNames[i], isSelected))
+				if (myui::PillSelectable(ThemeNames[i], selectedThemeIndex == i))
 					selectedThemeIndex = i;
-
-				if (isSelected)
-					ImGui::SetItemDefaultFocus();
 			}
-			ImGui::EndCombo();
+			myui::StyledEndCombo();
 		}
 
 		return selectedThemeIndex;
