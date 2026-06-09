@@ -1762,13 +1762,13 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							}
 
 							ImGui::TableNextColumn();
-							if (myui::StyledSmallButton(ICON_FA_EYE_SLASH))
+							if (myui::StyledSmallButton(ICON_FA_BAN))
 							{
 								s.fctIconOverrides[info.key] = { FCT_ICON_NONE, false };
 							}
 							if (ImGui::IsItemHovered())
 							{
-								ImGui::SetTooltip("Hide icon for this type");
+								ImGui::SetTooltip("Remove icon (show none)");
 							}
 							ImGui::SameLine();
 							if (myui::StyledSmallButton(ICON_FA_UNDO))
