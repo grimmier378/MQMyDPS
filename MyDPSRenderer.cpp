@@ -1184,10 +1184,10 @@ void MyDPSRenderer::RenderGroup(MyDPSEngine& engine)
 	ImGui::TextDisabled("|");
 	ImGui::SameLine();
 	ImGui::TextUnformatted("Filter:");
-	ImGui::SameLine(); ImGui::RadioButton("All", &engine.settings.peerFilterMode, 0);
-	ImGui::SameLine(); ImGui::RadioButton("Server", &engine.settings.peerFilterMode, 1);
-	ImGui::SameLine(); ImGui::RadioButton("Group", &engine.settings.peerFilterMode, 2);
-	ImGui::SameLine(); ImGui::RadioButton("Raid", &engine.settings.peerFilterMode, 3);
+	ImGui::SameLine();
+	static const char* kPeerFilters[] = { "All", "Server", "Group", "Raid" };
+	engine.settings.peerFilterMode =
+		myui::PillTabBar("##peerfilter", kPeerFilters, 4, engine.settings.peerFilterMode);
 	ImGui::Separator();
 
 	if (!engine.settings.showPeers)
@@ -1531,13 +1531,13 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 {
 	auto& s = engine.settings;
 
-	if (ImGui::Button("Save"))
+	if (myui::StyledButton("Save"))
 	{
 		engine.SaveCharacterSettings();
 		engine.showConfigWindow = false;
 	}
 	ImGui::SameLine();
-	if (ImGui::Button("Load"))
+	if (myui::StyledButton("Load"))
 	{
 		engine.LoadCharacterSettings();
 	}
@@ -1732,7 +1732,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 						}
 
 						ImGui::TableNextColumn();
-						if (ImGui::SmallButton("X"))
+						if (myui::StyledSmallButton("X"))
 						{
 							s.fctIconOverrides[info.key] = { FCT_ICON_NONE, false };
 						}
@@ -1741,7 +1741,7 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							ImGui::SetTooltip("Remove icon");
 						}
 						ImGui::SameLine();
-						if (ImGui::SmallButton("D"))
+						if (myui::StyledSmallButton("D"))
 						{
 							s.fctIconOverrides.erase(info.key);
 						}
@@ -1827,10 +1827,10 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 				auto* pe = engine.GetPatternEngine();
 				if (pe)
 				{
-					if (ImGui::Button("Save"))
+					if (myui::StyledButton("Save"))
 						pe->SavePatterns();
 					ImGui::SameLine();
-					if (ImGui::Button("Reload"))
+					if (myui::StyledButton("Reload"))
 						engine.ReloadPatterns();
 					ImGui::SameLine();
 					ImGui::TextDisabled("(%s)", pe->GetPatternsPath().c_str());
@@ -1859,11 +1859,8 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							ImGui::TextUnformatted(p.key.c_str());
 
 							ImGui::TableNextColumn();
-							char buf[512];
-							strncpy_s(buf, p.rawPattern.c_str(), sizeof(buf));
 							ImGui::SetNextItemWidth(-1);
-							if (ImGui::InputText("##pat", buf, sizeof(buf)))
-								p.rawPattern = buf;
+							myui::StyledEditField("##pat", &p.rawPattern, "click to edit");
 
 							ImGui::PopID();
 						}
@@ -1896,11 +1893,8 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 							ImGui::TextUnformatted(p.key.c_str());
 
 							ImGui::TableNextColumn();
-							char buf[512];
-							strncpy_s(buf, p.rawPattern.c_str(), sizeof(buf));
 							ImGui::SetNextItemWidth(-1);
-							if (ImGui::InputText("##pat", buf, sizeof(buf)))
-								p.rawPattern = buf;
+							myui::StyledEditField("##pat", &p.rawPattern, "click to edit");
 
 							ImGui::PopID();
 						}
