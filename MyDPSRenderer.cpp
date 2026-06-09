@@ -7,6 +7,7 @@
 #include <mq/Plugin.h>
 #include <mq/imgui/Widgets.h>
 #include <imgui/fonts/IconsMaterialDesign.h>
+#include <imgui/fonts/IconsFontAwesome.h>
 #include <imgui/implot/implot.h>
 #include <fmt/format.h>
 
@@ -1667,90 +1668,120 @@ void MyDPSRenderer::RenderConfig(MyDPSEngine& engine)
 
 				EnsurePickerAnimations();
 
-				if (ImGui::BeginTable("FCT Types", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+				std::vector<const FCTTypeInfo*> visibleTypes;
+				for (const auto& info : GetFCTTypeInfoList())
 				{
-					ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
-					ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40.0f);
-					ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 36.0f);
-					ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+					if (info.isMeleeVerb && !s.fctDistinctMelee)
+					{
+						continue;
+					}
+					visibleTypes.push_back(&info);
+				}
+
+				// Each setting "set" is 4 columns (Type | Color | Icon | Actions). Tile as
+				// many sets per row as the window width allows, then fill row-major.
+				const float kFctSetWidth = 280.0f;
+				int fctSets = std::max(1, static_cast<int>(sizeX / kFctSetWidth));
+				fctSets = std::min(fctSets, std::max(1, static_cast<int>(visibleTypes.size())));
+				const int fctTotalCols = fctSets * 4;
+
+				if (ImGui::BeginTable("FCT Types", fctTotalCols, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+				{
+					for (int setIdx = 0; setIdx < fctSets; ++setIdx)
+					{
+						std::string suffix = std::to_string(setIdx);
+						ImGui::TableSetupColumn(("Type##" + suffix).c_str(), ImGuiTableColumnFlags_WidthStretch);
+						ImGui::TableSetupColumn(("Color##" + suffix).c_str(), ImGuiTableColumnFlags_WidthFixed, 40.0f);
+						ImGui::TableSetupColumn(("Icon##" + suffix).c_str(), ImGuiTableColumnFlags_WidthFixed, 36.0f);
+						ImGui::TableSetupColumn(("##act" + suffix).c_str(), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+					}
 					ImGui::TableHeadersRow();
 
-					for (const auto& info : GetFCTTypeInfoList())
+					for (size_t base = 0; base < visibleTypes.size(); base += fctSets)
 					{
-						if (info.isMeleeVerb && !s.fctDistinctMelee)
-						{
-							continue;
-						}
-
-						ImGui::PushID(info.key);
 						ImGui::TableNextRow();
-
-						ImGui::TableNextColumn();
-						ImGui::TextUnformatted(info.displayName);
-
-						ImGui::TableNextColumn();
-						auto colorIt = s.damageColors.find(info.key);
-						if (colorIt != s.damageColors.end())
+						for (int c = 0; c < fctSets; ++c)
 						{
-							ImGui::ColorEdit4("##color", &colorIt->second.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
-						}
-
-						ImGui::TableNextColumn();
-						{
-							auto overIt = s.fctIconOverrides.find(info.key);
-							int iconID = (overIt != s.fctIconOverrides.end()) ? overIt->second.iconID : info.defaultIcon;
-
-							ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-							bool drewIcon = false;
-							if (iconID >= 0)
+							const size_t idx = base + static_cast<size_t>(c);
+							if (idx >= visibleTypes.size())
 							{
-								CTextureAnimation* anim = (iconID >= FCT_ITEM_ICON_OFFSET) ? m_pPickerItemAnim : m_pPickerSpellAnim;
-								if (anim)
+								for (int k = 0; k < 4; ++k)
 								{
-									int cell = (iconID >= FCT_ITEM_ICON_OFFSET) ? (iconID - FCT_ITEM_ICON_OFFSET) : iconID;
-									anim->SetCurCell(cell);
-									mq::imgui::DrawTextureAnimation(anim, CXSize(24, 24));
-									drewIcon = true;
+									ImGui::TableNextColumn();
+								}
+								continue;
+							}
+
+							const FCTTypeInfo& info = *visibleTypes[idx];
+							ImGui::PushID(info.key);
+
+							ImGui::TableNextColumn();
+							ImGui::TextUnformatted(info.displayName);
+
+							ImGui::TableNextColumn();
+							auto colorIt = s.damageColors.find(info.key);
+							if (colorIt != s.damageColors.end())
+							{
+								ImGui::ColorEdit4("##color", &colorIt->second.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+							}
+
+							ImGui::TableNextColumn();
+							{
+								auto overIt = s.fctIconOverrides.find(info.key);
+								int iconID = (overIt != s.fctIconOverrides.end()) ? overIt->second.iconID : info.defaultIcon;
+
+								ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+								bool drewIcon = false;
+								if (iconID >= 0)
+								{
+									CTextureAnimation* anim = (iconID >= FCT_ITEM_ICON_OFFSET) ? m_pPickerItemAnim : m_pPickerSpellAnim;
+									if (anim)
+									{
+										int cell = (iconID >= FCT_ITEM_ICON_OFFSET) ? (iconID - FCT_ITEM_ICON_OFFSET) : iconID;
+										anim->SetCurCell(cell);
+										mq::imgui::DrawTextureAnimation(anim, CXSize(24, 24));
+										drewIcon = true;
+									}
+								}
+								if (!drewIcon)
+								{
+									ImGui::Dummy(ImVec2(24, 24));
+								}
+
+								ImGui::SetCursorScreenPos(cursorPos);
+								if (ImGui::InvisibleButton("##pick", ImVec2(24, 24)))
+								{
+									m_iconPickerOpen = true;
+									m_iconPickerKey = info.key;
+									m_iconPickerLabel = info.displayName;
+								}
+								if (ImGui::IsItemHovered())
+								{
+									ImGui::SetTooltip("Click to change icon");
 								}
 							}
-							if (!drewIcon)
-							{
-								ImGui::Dummy(ImVec2(24, 24));
-							}
 
-							ImGui::SetCursorScreenPos(cursorPos);
-							if (ImGui::InvisibleButton("##pick", ImVec2(24, 24)))
+							ImGui::TableNextColumn();
+							if (myui::StyledSmallButton(ICON_FA_EYE_SLASH))
 							{
-								m_iconPickerOpen = true;
-								m_iconPickerKey = info.key;
-								m_iconPickerLabel = info.displayName;
+								s.fctIconOverrides[info.key] = { FCT_ICON_NONE, false };
 							}
 							if (ImGui::IsItemHovered())
 							{
-								ImGui::SetTooltip("Click to change icon");
+								ImGui::SetTooltip("Hide icon for this type");
 							}
-						}
+							ImGui::SameLine();
+							if (myui::StyledSmallButton(ICON_FA_UNDO))
+							{
+								s.fctIconOverrides.erase(info.key);
+							}
+							if (ImGui::IsItemHovered())
+							{
+								ImGui::SetTooltip("Reset to default icon");
+							}
 
-						ImGui::TableNextColumn();
-						if (myui::StyledSmallButton("X"))
-						{
-							s.fctIconOverrides[info.key] = { FCT_ICON_NONE, false };
+							ImGui::PopID();
 						}
-						if (ImGui::IsItemHovered())
-						{
-							ImGui::SetTooltip("Remove icon");
-						}
-						ImGui::SameLine();
-						if (myui::StyledSmallButton("D"))
-						{
-							s.fctIconOverrides.erase(info.key);
-						}
-						if (ImGui::IsItemHovered())
-						{
-							ImGui::SetTooltip("Reset to default");
-						}
-
-						ImGui::PopID();
 					}
 
 					ImGui::EndTable();
