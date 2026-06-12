@@ -144,7 +144,7 @@ PLUGIN_API void OnBeginZone()
 	if (g_dpsEngine)
 	{
 		g_dpsEngine->SaveCharacterSettings();
-		g_dpsEngine->inCombat = false;
+		g_dpsEngine->FinalizeBattle();
 		g_dpsEngine->activeDoTs.clear();
 		g_dpsEngine->fctManager.Clear();
 	}
@@ -693,6 +693,8 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			battleStartTime = std::chrono::steady_clock::now();
 			battleStartWallMs = NowEpochMs();
 		}
+
+		m_combatEndPending = false;
 
 		int spawnID = ResolveSpawnID(record);
 		record.targetSpawnID = spawnID;

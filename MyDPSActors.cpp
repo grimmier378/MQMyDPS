@@ -302,7 +302,7 @@ void MyDPSActors::OnReceive(const std::shared_ptr<mq::postoffice::Message>& msg)
 	case mq::proto::mydps::MyDPSEnvelope::PayloadCase::kLive:
 	{
 		const auto& l = env.live();
-		if (ci_equals(l.character(), m_character))
+		if (ci_equals(l.server(), m_server) && ci_equals(l.character(), m_character))
 		{
 			++m_selfIgnoredCount;
 			return;
@@ -342,7 +342,7 @@ void MyDPSActors::OnReceive(const std::shared_ptr<mq::postoffice::Message>& msg)
 	case mq::proto::mydps::MyDPSEnvelope::PayloadCase::kSession:
 	{
 		const auto& s = env.session();
-		if (ci_equals(s.character(), m_character))
+		if (ci_equals(s.server(), m_server) && ci_equals(s.character(), m_character))
 		{
 			++m_selfIgnoredCount;
 			return;
@@ -374,7 +374,7 @@ void MyDPSActors::OnReceive(const std::shared_ptr<mq::postoffice::Message>& msg)
 	case mq::proto::mydps::MyDPSEnvelope::PayloadCase::kBattle:
 	{
 		const auto& b = env.battle();
-		if (ci_equals(b.character(), m_character))
+		if (ci_equals(b.server(), m_server) && ci_equals(b.character(), m_character))
 		{
 			++m_selfIgnoredCount;
 			return;
