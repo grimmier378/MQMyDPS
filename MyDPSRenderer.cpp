@@ -80,25 +80,40 @@ void MyDPSRenderer::RenderCombatSpam(MyDPSEngine& engine)
 				color = colorIt->second;
 			}
 
-			std::string text;
-			if (engine.settings.showType && engine.settings.showTarget)
+			char dmgBuf[32];
+			const char* dmgStr;
+			if (rec.isMiss)
 			{
-				text = fmt::format("[{}] {}: {}", rec.attackVerb, rec.targetName, rec.isMiss ? "MISS" : FormatNumber(rec.damage));
-			}
-			else if (engine.settings.showType)
-			{
-				text = fmt::format("[{}] {}", rec.attackVerb, rec.isMiss ? "MISS" : FormatNumber(rec.damage));
-			}
-			else if (engine.settings.showTarget)
-			{
-				text = fmt::format("{}: {}", rec.targetName, rec.isMiss ? "MISS" : FormatNumber(rec.damage));
+				dmgStr = "MISS";
 			}
 			else
 			{
-				text = rec.isMiss ? "MISS" : FormatNumber(rec.damage);
+				auto dmgOut = fmt::format_to_n(dmgBuf, sizeof(dmgBuf) - 1, "{}", FormatNumber(rec.damage));
+				*dmgOut.out = '\0';
+				dmgStr = dmgBuf;
 			}
 
-			ImGui::TextColored(color, "%s", text.c_str());
+			char textBuf[160];
+			fmt::format_to_n_result<char*> out;
+			if (engine.settings.showType && engine.settings.showTarget)
+			{
+				out = fmt::format_to_n(textBuf, sizeof(textBuf) - 1, "[{}] {}: {}", rec.attackVerb, rec.targetName, dmgStr);
+			}
+			else if (engine.settings.showType)
+			{
+				out = fmt::format_to_n(textBuf, sizeof(textBuf) - 1, "[{}] {}", rec.attackVerb, dmgStr);
+			}
+			else if (engine.settings.showTarget)
+			{
+				out = fmt::format_to_n(textBuf, sizeof(textBuf) - 1, "{}: {}", rec.targetName, dmgStr);
+			}
+			else
+			{
+				out = fmt::format_to_n(textBuf, sizeof(textBuf) - 1, "{}", dmgStr);
+			}
+			*out.out = '\0';
+
+			ImGui::TextColored(color, "%s", textBuf);
 		}
 
 		ImGui::PopFont();
@@ -347,32 +362,41 @@ void MyDPSRenderer::RenderCurrentBattle(MyDPSEngine& engine)
 	}
 	ImGui::Separator();
 
-	struct StatEntry { const char* label; std::string value; ImVec4 color; };
-	StatEntry stats[] = {
-		{ "DPS",        fmt::format("{:.1f}", battleDPS),         C("dps") },
-		{ "Duration",   fmt::format("{:.0f} s", battleDur),       C("duration") },
-		{ "Total",      FormatNumber(engine.battleDamage),        C("total") },
-		{ "Avg",        fmt::format("{:.1f}", avgDmg),            C("avg") },
-		{ "Hits",       fmt::format("{}", engine.battleHitCount), C("total") },
-		{ "Crits",      FormatNumber(engine.battleCritDamage),    C("crit") },
-		{ "DoTs",       FormatNumber(engine.battleDotDamage),     C("dot") },
-		{ "Pet",        FormatNumber(engine.battlePetDamage),     C("pet") },
-		{ "Non-Melee",  FormatNumber(engine.battleNonMeleeDmg),   C("non-melee") },
-		{ "Heals",      FormatNumber(engine.battleDirectHeals),   C("heal") },
-		{ "Crit Heals", FormatNumber(engine.battleCritHeals),     C("critHeals") },
+	struct StatEntry { const char* label; char value[32]; ImVec4 color; };
+	StatEntry stats[11];
+	int statN = 0;
+	auto addStat = [&](const char* label, const ImVec4& color, auto fmtStr, auto&&... args)
+	{
+		StatEntry& e = stats[statN++];
+		e.label = label;
+		e.color = color;
+		auto out = fmt::format_to_n(e.value, sizeof(e.value) - 1, fmt::runtime(fmtStr), std::forward<decltype(args)>(args)...);
+		*out.out = '\0';
 	};
+	addStat("DPS",        C("dps"),       "{:.1f}",   battleDPS);
+	addStat("Duration",   C("duration"),  "{:.0f} s", battleDur);
+	addStat("Total",      C("total"),     "{}",       FormatNumber(engine.battleDamage));
+	addStat("Avg",        C("avg"),       "{:.1f}",   avgDmg);
+	addStat("Hits",       C("total"),     "{}",       engine.battleHitCount);
+	addStat("Crits",      C("crit"),      "{}",       FormatNumber(engine.battleCritDamage));
+	addStat("DoTs",       C("dot"),       "{}",       FormatNumber(engine.battleDotDamage));
+	addStat("Pet",        C("pet"),       "{}",       FormatNumber(engine.battlePetDamage));
+	addStat("Non-Melee",  C("non-melee"), "{}",       FormatNumber(engine.battleNonMeleeDmg));
+	addStat("Heals",      C("heal"),      "{}",       FormatNumber(engine.battleDirectHeals));
+	addStat("Crit Heals", C("critHeals"), "{}",       FormatNumber(engine.battleCritHeals));
 
 	int sizeX = static_cast<int>(ImGui::GetWindowWidth());
 	int col = std::max(1, sizeX / 150);
 	if (ImGui::BeginTable("BattleStats", col))
 	{
 		ImGui::TableNextRow();
-		for (const auto& s : stats)
+		for (int i = 0; i < statN; ++i)
 		{
+			const StatEntry& s = stats[i];
 			ImGui::TableNextColumn();
 			ImGui::Text("%s:", s.label);
 			ImGui::SameLine();
-			ImGui::TextColored(s.color, "%s", s.value.c_str());
+			ImGui::TextColored(s.color, "%s", s.value);
 		}
 		ImGui::EndTable();
 	}
@@ -689,12 +713,13 @@ static constexpr int GRAPH_MAX_BACK = 250;
 void MyDPSRenderer::RebuildGraphCache(MyDPSEngine& engine)
 {
 	int totalBattles = static_cast<int>(engine.battleHistory.size());
-	if (totalBattles == m_cachedBattleCount)
+	if (totalBattles == m_cachedBattleCount && engine.resetGeneration == m_cachedResetGen)
 	{
 		return;
 	}
 
 	m_cachedBattleCount = totalBattles;
+	m_cachedResetGen    = engine.resetGeneration;
 	int cacheCount = std::min(totalBattles, GRAPH_MAX_BACK);
 	int cacheStart = totalBattles - cacheCount;
 	m_gTotalCached = cacheCount;
@@ -1000,25 +1025,15 @@ void MyDPSRenderer::RenderHealing(MyDPSEngine& engine)
 	}
 }
 
+float MyDPSRenderer::Encounter::DurationS() const
+{
+	return std::max(1.0f, static_cast<float>(endMs - startMs) / 1000.0f);
+}
+
 namespace
 {
-struct EncounterChar
-{
-	const PeerRecord* peer = nullptr;
-	int64_t damage     = 0;
-	int64_t heals      = 0;
-	float   activeDurS = 0.0f;
-	int     battles    = 0;
-};
-
-struct Encounter
-{
-	int64_t startMs = 0;
-	int64_t endMs   = 0;
-	std::vector<EncounterChar> chars;
-
-	float DurationS() const { return std::max(1.0f, static_cast<float>(endMs - startMs) / 1000.0f); }
-};
+using EncounterChar = MyDPSRenderer::EncounterChar;
+using Encounter = MyDPSRenderer::Encounter;
 
 constexpr int64_t kEncounterGapToleranceMs = 5000;
 
@@ -1081,6 +1096,12 @@ std::vector<Encounter> BuildEncounters(const std::vector<const PeerRecord*>& pee
 		ec->activeDurS += b->durationSeconds;
 		ec->battles    += 1;
 	}
+
+	for (Encounter& e : encs)
+	{
+		std::sort(e.chars.begin(), e.chars.end(),
+			[](const EncounterChar& a, const EncounterChar& b) { return a.damage > b.damage; });
+	}
 	return encs;
 }
 
@@ -1094,6 +1115,41 @@ std::string FormatClock(int64_t ms)
 	return buf;
 }
 } // namespace
+
+const std::vector<MyDPSRenderer::Encounter>& MyDPSRenderer::EnsureEncounters(
+	MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers)
+{
+	uint64_t battleSig = 1469598103934665603ull;
+	auto mix = [&](uint64_t v)
+	{
+		battleSig ^= v;
+		battleSig *= 1099511628211ull;
+	};
+	for (const PeerRecord* p : peers)
+	{
+		mix(static_cast<uint64_t>(p->battles.size()));
+		if (!p->battles.empty())
+		{
+			mix(static_cast<uint64_t>(p->battles.back().startTimeMs));
+			mix(static_cast<uint64_t>(p->battles.front().startTimeMs));
+		}
+	}
+
+	if (engine.resetGeneration == m_encCachedResetGen
+		&& peers.size() == m_encCachedPeerCount
+		&& battleSig == m_encCachedBattleSum
+		&& engine.settings.peerFilterMode == m_encCachedFilterMode)
+	{
+		return m_encCache;
+	}
+
+	m_encCache             = BuildEncounters(peers);
+	m_encCachedResetGen    = engine.resetGeneration;
+	m_encCachedPeerCount   = peers.size();
+	m_encCachedBattleSum   = battleSig;
+	m_encCachedFilterMode  = engine.settings.peerFilterMode;
+	return m_encCache;
+}
 
 void MyDPSRenderer::RenderPeerLiveMeter(MyDPSEngine& engine)
 {
@@ -1282,7 +1338,7 @@ void MyDPSRenderer::RenderGroupHistory(MyDPSEngine& engine, const std::vector<co
 		return;
 	}
 
-	std::vector<Encounter> encs = BuildEncounters(peers);
+	const std::vector<Encounter>& encs = EnsureEncounters(engine, peers);
 	if (encs.empty())
 	{
 		ImGui::TextDisabled("No finalized battles yet.");
@@ -1305,11 +1361,9 @@ void MyDPSRenderer::RenderGroupHistory(MyDPSEngine& engine, const std::vector<co
 		ImGui::TableSetupColumn("Heals");
 		ImGui::TableHeadersRow();
 
-		auto renderEnc = [&](int encIndex, Encounter& e)
+		auto renderEnc = [&](int encIndex, const Encounter& e)
 		{
 			float durS = e.DurationS();
-			std::sort(e.chars.begin(), e.chars.end(),
-				[](const EncounterChar& a, const EncounterChar& b) { return a.damage > b.damage; });
 
 			int64_t sumDmg = 0;
 			int64_t sumHeals = 0;
@@ -1423,7 +1477,7 @@ void MyDPSRenderer::RenderGroupGraphs(MyDPSEngine& engine, const std::vector<con
 	ImGui::Separator();
 	ImGui::Text("Per-Encounter DPS by Character (recent, time-aligned)");
 
-	std::vector<Encounter> encs = BuildEncounters(peers);
+	const std::vector<Encounter>& encs = EnsureEncounters(engine, peers);
 	if (encs.empty())
 	{
 		ImGui::TextDisabled("No finalized battles yet.");

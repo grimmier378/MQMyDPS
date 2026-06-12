@@ -5,6 +5,7 @@
 #include <mq/Plugin.h>
 
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -41,8 +42,30 @@ private:
 		TAB_COUNT
 	};
 
+public:
+	struct EncounterChar
+	{
+		const PeerRecord* peer = nullptr;
+		int64_t damage     = 0;
+		int64_t heals      = 0;
+		float   activeDurS = 0.0f;
+		int     battles    = 0;
+	};
+
+	struct Encounter
+	{
+		int64_t startMs = 0;
+		int64_t endMs   = 0;
+		std::vector<EncounterChar> chars;
+
+		float DurationS() const;
+	};
+
+private:
 	static const char* TabName(int tab);
 	void RenderTabBody(MyDPSEngine& engine, int tab);
+
+	const std::vector<Encounter>& EnsureEncounters(MyDPSEngine& engine, const std::vector<const PeerRecord*>& peers);
 
 	void RenderCurrentBattle(MyDPSEngine& engine);
 	void RenderHistory(MyDPSEngine& engine);
@@ -80,11 +103,18 @@ private:
 	GraphScrollState m_barScroll;
 
 	int m_cachedBattleCount = -1;
+	int m_cachedResetGen    = -1;
 	std::vector<float> m_gNums, m_gDps, m_gMelee, m_gDD, m_gDots, m_gPets;
 	std::vector<float> m_gCrits, m_gHeals, m_gCritHeals;
 	int m_gTotalCached = 0;
 
-	std::chrono::steady_clock::time_point m_lastFCTUpdate;
+	std::vector<Encounter> m_encCache;
+	int      m_encCachedResetGen   = -1;
+	size_t   m_encCachedPeerCount  = static_cast<size_t>(-1);
+	uint64_t m_encCachedBattleSum  = static_cast<uint64_t>(-1);
+	int      m_encCachedFilterMode = -1;
+
+	std::chrono::steady_clock::time_point m_lastFCTUpdate = std::chrono::steady_clock::now();
 
 	bool        m_iconPickerOpen      = false;
 	std::string m_iconPickerKey;

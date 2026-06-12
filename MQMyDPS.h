@@ -62,6 +62,7 @@ public:
 	bool inCombat          = false;
 	int  battleCounter     = 0;
 	int  sequenceCounter   = 0;
+	int  resetGeneration   = 0;
 
 	int64_t battleDamage      = 0;
 	int64_t battleCritDamage  = 0;

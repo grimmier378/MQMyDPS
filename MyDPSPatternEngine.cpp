@@ -59,16 +59,13 @@ unsigned int CALLBACK MyDPSPatternEngine::BlechVarCallback(char*, char*, size_t)
 
 void CALLBACK MyDPSPatternEngine::BlechCallback(unsigned int id, void* pData, PBLECHVALUE pValues)
 {
-	if (!g_dpsEngine)
+	if (!pData)
 	{
 		return;
 	}
 
-	auto* pe = g_dpsEngine->GetPatternEngine();
-	if (pe)
-	{
-		pe->HandleMatch(id, pValues);
-	}
+	auto* pe = static_cast<MyDPSPatternEngine*>(pData);
+	pe->HandleMatch(id, pValues);
 }
 
 void MyDPSPatternEngine::HandleMatch(unsigned int id, PBLECHVALUE pValues)
@@ -93,9 +90,9 @@ void MyDPSPatternEngine::HandleMatch(unsigned int id, PBLECHVALUE pValues)
 
 	m_pendingRecord = DamageRecord{};
 	m_pendingRecord.timestamp = std::chrono::steady_clock::now();
-	m_matched = true;
 
-	(this->*(builderIt->second))(m_pendingRecord, pValues);
+	BuilderFn builder = builderIt->second;
+	m_matched = (this->*builder)(m_pendingRecord, pValues);
 }
 
 std::optional<DamageRecord> MyDPSPatternEngine::Feed(const char* line, DWORD color)
@@ -224,18 +221,6 @@ const char* MyDPSPatternEngine::DamageTypeToJsonString(DamageType type)
 	}
 }
 
-std::string MyDPSPatternEngine::SubstituteToken(const std::string& pat, const std::string& token, const std::string& value)
-{
-	std::string result = pat;
-	size_t pos = 0;
-	while ((pos = result.find(token, pos)) != std::string::npos)
-	{
-		result.replace(pos, token.length(), value);
-		pos += value.length();
-	}
-	return result;
-}
-
 void MyDPSPatternEngine::GenerateDefaults()
 {
 	m_patterns.clear();
@@ -293,6 +278,20 @@ void MyDPSPatternEngine::LoadPatterns(const std::string& serverName, const std::
 		if (fileVersion < PATTERNS_VERSION)
 		{
 			file.close();
+
+			std::filesystem::path backupPath = std::filesystem::path(m_patternsPath).replace_extension(
+				fmt::format("v{}.bak.json", fileVersion));
+			std::error_code ec;
+			std::filesystem::rename(m_patternsPath, backupPath, ec);
+			if (ec)
+			{
+				WriteChatf("\ar[MQMyDPS]\ax Failed to back up patterns before upgrade: %s", ec.message().c_str());
+			}
+			else
+			{
+				WriteChatf("\at[MQMyDPS]\ax Backed up existing patterns to: %s", backupPath.string().c_str());
+			}
+
 			GenerateDefaults();
 			SavePatterns();
 			WriteChatf("\at[MQMyDPS]\ax Patterns upgraded from v%d to v%d: %s", fileVersion, PATTERNS_VERSION, m_patternsPath.c_str());
@@ -385,8 +384,8 @@ void MyDPSPatternEngine::RegisterEvents()
 			continue;
 		}
 
-		def.pattern = SubstituteToken(def.rawPattern, "{CharName}", m_charName);
-		unsigned int id = m_blech->AddEvent(def.pattern.c_str(), BlechCallback, nullptr);
+		def.pattern = mq::replace(def.rawPattern, "{CharName}", m_charName);
+		unsigned int id = m_blech->AddEvent(def.pattern.c_str(), BlechCallback, this);
 		def.blechId = id;
 		m_blechEventMap[id] = &def;
 	}
@@ -426,9 +425,9 @@ void MyDPSPatternEngine::RegisterPetEvents(const std::string& petName)
 			continue;
 		}
 
-		def.pattern = SubstituteToken(def.rawPattern, "{PetName}", m_petName);
-		def.pattern = SubstituteToken(def.pattern, "{CharName}", m_charName);
-		unsigned int id = m_blech->AddEvent(def.pattern.c_str(), BlechCallback, nullptr);
+		def.pattern = mq::replace(def.rawPattern, "{PetName}", m_petName);
+		def.pattern = mq::replace(def.pattern, "{CharName}", m_charName);
+		unsigned int id = m_blech->AddEvent(def.pattern.c_str(), BlechCallback, this);
 		def.blechId = id;
 		m_blechEventMap[id] = &def;
 	}
@@ -454,53 +453,57 @@ void MyDPSPatternEngine::UnregisterPetEvents()
 	m_petName.clear();
 }
 
-void MyDPSPatternEngine::BuildMelee(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildMelee(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	std::string verb = GetBlechValue(pValues, "verb");
 	if (verb == "have")
 	{
-		m_matched = false;
-		return;
+		return false;
 	}
 
 	rec.type = DamageType::Melee;
 	rec.attackVerb = std::move(verb);
 	rec.targetName = GetBlechValue(pValues, "target");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildMiss(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildMiss(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::Miss;
 	rec.attackVerb = GetBlechValue(pValues, "verb");
 	rec.targetName = GetBlechValue(pValues, "target");
 	rec.damage = 0;
 	rec.isMiss = true;
+	return true;
 }
 
-void MyDPSPatternEngine::BuildNonMelee(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildNonMelee(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::NonMelee;
 	rec.attackVerb = "non-melee";
 	rec.targetName = GetBlechValue(pValues, "target");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildCrit(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildCrit(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::Crit;
 	rec.attackVerb = "crit";
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildDeadlyStrike(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildDeadlyStrike(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::Crit;
 	rec.attackVerb = "deadly";
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildDoT(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildDoT(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::DoT;
 	rec.attackVerb = "dot";
@@ -512,41 +515,46 @@ void MyDPSPatternEngine::BuildDoT(DamageRecord& rec, PBLECHVALUE pValues)
 	{
 		rec.spellName.pop_back();
 	}
+	return true;
 }
 
-void MyDPSPatternEngine::BuildDamageShield(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildDamageShield(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::DamageShield;
 	rec.attackVerb = "dShield";
 	rec.targetName = GetBlechValue(pValues, "target");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildHitBy(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildHitBy(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::HitBy;
 	rec.targetName = GetBlechValue(pValues, "attacker");
 	rec.attackVerb = GetBlechValue(pValues, "verb");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildMissedMe(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildMissedMe(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::MissedMe;
 	rec.targetName = GetBlechValue(pValues, "attacker");
 	rec.attackVerb = GetBlechValue(pValues, "verb");
 	rec.damage = 0;
 	rec.isMiss = true;
+	return true;
 }
 
-void MyDPSPatternEngine::BuildCritHeal(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildCritHeal(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::CritHeal;
 	rec.attackVerb = "critHeal";
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildDirectHeal(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildDirectHeal(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::DirectHeal;
 	rec.attackVerb = "heal";
@@ -558,9 +566,10 @@ void MyDPSPatternEngine::BuildDirectHeal(DamageRecord& rec, PBLECHVALUE pValues)
 	{
 		rec.spellName.pop_back();
 	}
+	return true;
 }
 
-void MyDPSPatternEngine::BuildHealedBy(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildHealedBy(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::DirectHeal;
 	rec.attackVerb = "heal";
@@ -575,31 +584,35 @@ void MyDPSPatternEngine::BuildHealedBy(DamageRecord& rec, PBLECHVALUE pValues)
 
 	if (rec.damage <= 0)
 	{
-		m_matched = false;
+		return false;
 	}
+	return true;
 }
 
-void MyDPSPatternEngine::BuildHitByNonMelee(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildHitByNonMelee(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::HitByNonMelee;
 	rec.attackVerb = "non-melee";
 	rec.targetName = GetBlechValue(pValues, "attacker");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildPetMelee(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildPetMelee(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::PetMelee;
 	std::string verb = GetBlechValue(pValues, "verb");
 	rec.attackVerb = m_petName + " " + verb;
 	rec.targetName = GetBlechValue(pValues, "target");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
 
-void MyDPSPatternEngine::BuildPetNonMelee(DamageRecord& rec, PBLECHVALUE pValues)
+bool MyDPSPatternEngine::BuildPetNonMelee(DamageRecord& rec, PBLECHVALUE pValues)
 {
 	rec.type = DamageType::PetNonMelee;
 	rec.attackVerb = m_petName + " non-melee";
 	rec.targetName = GetBlechValue(pValues, "target");
 	rec.damage = GetBlechInt(pValues, "damage");
+	return true;
 }
