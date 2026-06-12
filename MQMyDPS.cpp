@@ -144,7 +144,7 @@ PLUGIN_API void OnBeginZone()
 	if (g_dpsEngine)
 	{
 		g_dpsEngine->SaveCharacterSettings();
-		g_dpsEngine->inCombat = false;
+		g_dpsEngine->FinalizeBattle();
 		g_dpsEngine->activeDoTs.clear();
 		g_dpsEngine->fctManager.Clear();
 	}
@@ -406,6 +406,14 @@ void MyDPSEngine::LoadCharacterSettings()
 	settings.spamClickThrough = GetPrivateProfileBool("Options", "SpamClickThrough", true, path);
 	settings.displayTime      = GetPrivateProfileInt("Options", "DisplayTime", 10, path);
 	settings.battleEndDelay   = GetPrivateProfileInt("Options", "BattleEndDelay", 10, path);
+	if (settings.displayTime < 1 || settings.displayTime > 120)
+	{
+		settings.displayTime = 10;
+	}
+	if (settings.battleEndDelay < 1 || settings.battleEndDelay > 300)
+	{
+		settings.battleEndDelay = 10;
+	}
 
 	settings.showPeers        = GetPrivateProfileBool("Group", "ShowPeers", true, path);
 	settings.peerFilterMode   = GetPrivateProfileInt("Group", "FilterMode", 0, path);
@@ -694,6 +702,8 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 			battleStartWallMs = NowEpochMs();
 		}
 
+		m_combatEndPending = false;
+
 		int spawnID = ResolveSpawnID(record);
 		record.targetSpawnID = spawnID;
 
@@ -874,9 +884,9 @@ void MyDPSEngine::RecordDamage(DamageRecord& record)
 		{
 			if (!record.targetName.empty() && record.targetName != charName)
 			{
-				if (PlayerClient* pTarget = GetSpawnByName(record.targetName.c_str()))
+				if (PlayerClient* pHealTarget = GetSpawnByName(record.targetName.c_str()))
 				{
-					record.targetSpawnID = pTarget->SpawnID;
+					record.targetSpawnID = pHealTarget->SpawnID;
 				}
 			}
 			else
@@ -1001,6 +1011,7 @@ void MyDPSEngine::ResetAll()
 	m_combatEndPending = false;
 	battleCounter = 0;
 	sequenceCounter = 0;
+	++resetGeneration;
 	m_syntheticIDCounter = 0;
 	m_lastCastSpellID = -1;
 	m_lastCastSpellIcon = -1;

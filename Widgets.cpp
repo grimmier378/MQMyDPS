@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_map>
 
 namespace myui
 {
@@ -95,6 +96,15 @@ bool AnimationsEnabled()
 	return g_animationsEnabled;
 }
 
+ImVec4 Soften(const ImVec4& accent)
+{
+	ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+	bg.w = 1.0f;
+	ImVec4 r = ImLerp(accent, bg, 0.35f);
+	r.w = accent.w;
+	return r;
+}
+
 void SoftGlowRoundRect(ImDrawList* dl, ImVec2 p0, ImVec2 p1, float rounding, ImVec4 col, float intensity)
 {
 	if (intensity <= 0.001f)
@@ -108,6 +118,126 @@ void SoftGlowRoundRect(ImDrawList* dl, ImVec2 p0, ImVec2 p1, float rounding, ImV
 		g.w = col.w * intensity * (0.22f / (float)i);
 		dl->AddRectFilled(ImVec2(p0.x - spread, p0.y - spread), ImVec2(p1.x + spread, p1.y + spread),
 			ImGui::GetColorU32(g), rounding + spread);
+	}
+}
+
+float DirectionRingRadius(const char* distText, const RingStyle& style)
+{
+	// Always auto-fit to a fixed 3-digit text width, so the ring is a constant size
+	// regardless of the actual distance (which DrawDirectionRing centers inside) while
+	// still scaling with the font. Size to the text half-WIDTH (not the diagonal) so the
+	// track hugs the number tightly. distText is unused now that the width is fixed.
+	(void)distText;
+	const float w3 = ImGui::CalcTextSize("000").x;
+	return w3 * 0.5f + style.thickness * 0.5f + 2.0f;
+}
+
+void PushWindowClip(ImDrawList* dl)
+{
+	if (!dl)
+	{
+		return;
+	}
+	const ImVec2 wmin = ImGui::GetWindowPos();
+	const ImVec2 wsz = ImGui::GetWindowSize();
+	dl->PushClipRect(wmin, ImVec2(wmin.x + wsz.x, wmin.y + wsz.y), false);
+}
+
+ImVec4 ResolveColorSource(ImGuiID id, ImU32 animSeed, const ColorSource& cs,
+	float distance, float distMin, float distMax, bool los, ImGuiCol themeFallback, float dt)
+{
+	if (cs.mode == 1) // Distance: tween near->far across [distMin, distMax]
+	{
+		float span = distMax - distMin;
+		float t = span > 0.001f ? (distance - distMin) / span : 0.0f;
+		t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+		ImVec4 target = ImLerp(ImVec4(cs.distNear.ToImColor()), ImVec4(cs.distFar.ToImColor()), t);
+		return AnimColor(id, animSeed, target, 0.25f,
+			iam_ease_preset(iam_ease_out_cubic), iam_policy_crossfade, iam_col_oklab, dt, target);
+	}
+	if (cs.mode == 2) // Visibility: tween between los/no-los colors
+	{
+		ImVec4 target = los ? ImVec4(cs.losColor.ToImColor()) : ImVec4(cs.noLosColor.ToImColor());
+		return AnimColor(id, animSeed, target, 0.25f,
+			iam_ease_preset(iam_ease_out_cubic), iam_policy_crossfade, iam_col_oklab, dt, target);
+	}
+	return cs.custom.Alpha == 0 ? ImGui::GetStyleColorVec4(themeFallback) : ImVec4(cs.custom.ToImColor());
+}
+
+void DrawDirectionRing(ImDrawList* dl, ImGuiID id, ImVec2 center, float targetBearingDeg,
+	float distance, bool los, const char* distText, const RingStyle& style)
+{
+	if (!dl)
+	{
+		return;
+	}
+
+	const float dt = ImGui::GetIO().DeltaTime;
+
+	// Shortest-arc angle smoothing toward the (possibly stale) target bearing. Kept
+	// in our own per-id state so wrapping past +/-180 never sweeps the long way.
+	static std::unordered_map<ImGuiID, float> s_angle;
+	float drawAngle = targetBearingDeg;
+	if (g_animationsEnabled)
+	{
+		auto it = s_angle.find(id);
+		float cur = (it != s_angle.end()) ? it->second : targetBearingDeg;
+		float diff = targetBearingDeg - cur;
+		while (diff > 180.0f)  { diff -= 360.0f; }
+		while (diff < -180.0f) { diff += 360.0f; }
+		const float k = 1.0f - expf(-dt / 0.10f); // ~0.1s smoothing time constant
+		cur += diff * k;
+		s_angle[id] = cur;
+		drawAngle = cur;
+	}
+	else
+	{
+		s_angle[id] = targetBearingDeg;
+	}
+
+	// radius 0 = auto-fit: smallest radius whose inner edge clears the distance
+	// text's bounding circle, plus the track half-thickness and a little padding,
+	// so the text never touches the track (DirectionRingRadius owns the formula).
+	const float radius = DirectionRingRadius(distText, style);
+
+	// Background fill clipped to the inner edge of the track, behind the text.
+	if (style.bgOn)
+	{
+		const ImVec4 bg = ResolveColorSource(id, ImHashStr("ring_bg"), style.bg,
+			distance, style.distMin, style.distMax, los, ImGuiCol_ChildBg, dt);
+		dl->AddCircleFilled(center, radius - style.thickness * 0.5f, ImGui::GetColorU32(bg), 64);
+	}
+
+	const ImVec4 track = ResolveColorSource(id, ImHashStr("ring_track"), style.track,
+		distance, style.distMin, style.distMax, los, ImGuiCol_FrameBg, dt);
+	dl->AddCircle(center, radius, ImGui::GetColorU32(track), 64, style.thickness);
+
+	// Marker on the track: 0 deg = top, clockwise positive (ImGui Y is down).
+	const float rad = drawAngle * (kPi / 180.0f);
+	const ImVec2 mark(center.x + sinf(rad) * radius, center.y - cosf(rad) * radius);
+
+	const ImVec4 indic = style.indicColor.Alpha == 0
+		? ImGui::GetStyleColorVec4(ImGuiCol_SliderGrab) : ImVec4(style.indicColor.ToImColor());
+
+	if (style.glowOn && style.glowAlpha > 0.001f)
+	{
+		ImVec4 glow = style.glowColor.Alpha == 0 ? indic : ImVec4(style.glowColor.ToImColor());
+		const float s = style.indicSize;
+		SoftGlowRoundRect(dl, ImVec2(mark.x - s, mark.y - s), ImVec2(mark.x + s, mark.y + s),
+			s, glow, style.glowAlpha);
+	}
+
+	dl->AddCircleFilled(mark, style.indicSize, ImGui::GetColorU32(indic), 16);
+
+	if (distText && distText[0])
+	{
+		const ImVec2 ts = ImGui::CalcTextSize(distText);
+		const ImVec2 tp(center.x - ts.x * 0.5f, center.y - ts.y * 0.5f);
+		if (style.textShadow)
+		{
+			dl->AddText(ImVec2(tp.x + 1.0f, tp.y + 1.0f), IM_COL32(0, 0, 0, 160), distText);
+		}
+		dl->AddText(tp, ImGui::GetColorU32(ImGuiCol_Text), distText);
 	}
 }
 
@@ -127,23 +257,15 @@ bool DrawToggle(const char* id, bool* value, int flags, ImVec2 size)
 		size = g_globalToggleSize;
 	}
 
-	char label[128] = { 0 };
-	const char* sep = strstr(id, "##");
-	size_t labelLen = sep ? (size_t)(sep - id) : strlen(id);
-	if (labelLen >= sizeof(label))
-	{
-		labelLen = sizeof(label) - 1;
-	}
-	memcpy(label, id, labelLen);
-	label[labelLen] = 0;
+	const char* labelEnd = ImGui::FindRenderedTextEnd(id);
 
 	const bool rightLabel = (flags & ToggleFlags_RightLabel) != 0;
-	const bool hasLabel   = label[0] != 0;
+	const bool hasLabel   = labelEnd != id;
 
 	// Scale the switch to the label's text height (falls back to the line height
 	// for unlabeled toggles) so it stays proportional to surrounding text rather
 	// than to the padded frame height.
-	const float textH = hasLabel ? ImGui::CalcTextSize(label).y : ImGui::GetTextLineHeight();
+	const float textH = hasLabel ? ImGui::CalcTextSize(id, labelEnd).y : ImGui::GetTextLineHeight();
 	float height = size.y > 0.0f ? size.y : ImMax(textH, 1.0f);
 	float width  = size.x > 0.0f ? size.x : height * 1.9f;
 	float radius = height * 0.5f;
@@ -154,7 +276,7 @@ bool DrawToggle(const char* id, bool* value, int flags, ImVec2 size)
 	if (hasLabel && !rightLabel)
 	{
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextUnformatted(label);
+		ImGui::TextUnformatted(id, labelEnd);
 		ImGui::SameLine();
 	}
 
@@ -260,7 +382,7 @@ bool DrawToggle(const char* id, bool* value, int flags, ImVec2 size)
 	{
 		ImGui::SameLine();
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextUnformatted(label);
+		ImGui::TextUnformatted(id, labelEnd);
 	}
 
 	ImGui::PopID();
@@ -377,10 +499,10 @@ bool RevealCore(const char* label, bool* openPtr, bool headerStyle)
 
 		if (t > 0.02f)
 		{
-			dl->AddRect(pos, cmax, ImGui::GetColorU32(ImGuiCol_Header), radius, ImDrawFlags_RoundCornersAll, 1.5f);
+			dl->AddRect(pos, cmax, ImGui::GetColorU32(Soften(ImGui::GetStyleColorVec4(ImGuiCol_Header))), radius, ImDrawFlags_RoundCornersAll, 1.5f);
 		}
 		const ImDrawFlags hdrCorners = (t < 0.02f) ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersTop;
-		ImVec4 hdr = ImGui::GetStyleColorVec4(hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header);
+		ImVec4 hdr = Soften(ImGui::GetStyleColorVec4(hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header));
 		hdr.w = 1.0f;
 		dl->AddRectFilled(pos, ImVec2(cmax.x, pos.y + rowH), ImGui::GetColorU32(hdr), radius, hdrCorners);
 	}
@@ -479,7 +601,7 @@ int PillTabBar(const char* id, const char* const labels[], int count, int curren
 	const float pillX = AnimFloat(pillId, ImHashStr("x"), positions[sel], style::kTabPillDur, style::TabPillEase(), iam_policy_crossfade, dt, positions[sel]);
 	const float pillW = AnimFloat(pillId, ImHashStr("w"), widths[sel], style::kTabPillDur, style::TabPillEase(), iam_policy_crossfade, dt, widths[sel]);
 
-	ImVec4 accent = ImGui::GetStyleColorVec4(ImGuiCol_Header);
+	ImVec4 accent = Soften(ImGui::GetStyleColorVec4(ImGuiCol_Header));
 	accent.w = 1.0f;
 	dl->AddRectFilled(ImVec2(pos.x + outer + pillX, pos.y + outer),
 		ImVec2(pos.x + outer + pillX + pillW, pos.y + outer + height),
@@ -535,7 +657,7 @@ bool PillSelectable(const char* label, bool selected, float width)
 	const float rounding = (height * 0.5f) * style::kPillRounding;
 	if (t > 0.001f)
 	{
-		ImVec4 accent = ImGui::GetStyleColorVec4(ImGuiCol_Header);
+		ImVec4 accent = Soften(ImGui::GetStyleColorVec4(ImGuiCol_Header));
 		accent.w = t;
 		dl->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), ImGui::GetColorU32(accent), rounding);
 	}
@@ -577,6 +699,7 @@ namespace
 // by the slider Ctrl+click popup and the cursor-anchored InputPopup.
 char g_editPopupBuf[256] = {};
 ImVec2 g_editPopupPos = ImVec2(0.0f, 0.0f);
+ImGuiID g_editPopupOwner = 0;
 
 // Shared cursor-anchored edit-popup body: a focused input + styled Accept/Cancel
 // buttons, Enter accepts / Esc cancels. Returns 1 = accepted, -1 = cancelled,
@@ -584,9 +707,16 @@ ImVec2 g_editPopupPos = ImVec2(0.0f, 0.0f);
 int EditPopupRun(const char* popupId, float width, ImGuiInputTextFlags extraFlags, const char* hint)
 {
 	int result = 0;
+	const ImGuiID ownerId = ImGui::GetID(popupId);
 	ImGui::SetNextWindowPos(g_editPopupPos, ImGuiCond_Appearing);
 	if (ImGui::BeginPopup(popupId))
 	{
+		if (g_editPopupOwner != ownerId)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return 0;
+		}
 		if (ImGui::IsWindowAppearing())
 		{
 			ImGui::SetKeyboardFocusHere();
@@ -634,7 +764,7 @@ void DrawAnimatedSlider(ImGuiID id, ImVec2 pos, float w, float h, float trackT, 
 	trackT = ImClamp(trackT, 0.0f, 1.0f);
 	const float thumbX = pos.x + r + trackT * (w - 2.0f * r);
 
-	ImVec4 accent = ImGui::GetStyleColorVec4(ImGuiCol_Header);
+	ImVec4 accent = Soften(ImGui::GetStyleColorVec4(ImGuiCol_Header));
 	accent.w = 1.0f;
 	const ImU32 accentU = ImGui::GetColorU32(accent);
 
@@ -685,41 +815,80 @@ void SliderLabel(const char* label)
 		ImGui::TextUnformatted(label, end);
 	}
 }
+
+// Common scaffold for the styled float/int sliders: lays out the invisible
+// button, derives the per-slider edit-popup id, and handles the Ctrl+click open
+// + edit-popup parse. The two type-specific bits — the value text, the active-
+// drag value mapping, and the trackT — stay in the wrappers so the float path
+// keeps doing exact float arithmetic and the int path keeps integer rounding
+// (mixing them through one double core would shift rounding/precision and was
+// not behavior-preserving). `pos`/`w`/`h`/`r`/`id`/`hovered`/`active`/`popupId`
+// are returned for the wrapper to finish with. `seedText` is what Ctrl+click
+// preloads into the edit popup; `parsedOut` receives the popup result.
+struct SliderFrame
+{
+	ImVec2  pos;
+	float   w;
+	float   h;
+	float   r;
+	ImGuiID id;
+	bool    hovered;
+	bool    active;
+	char    popupId[20];
+};
+
+SliderFrame SliderBegin(const char* label)
+{
+	SliderFrame f{};
+	f.pos = ImGui::GetCursorScreenPos();
+	f.w = ImGui::CalcItemWidth();
+	f.h = ImGui::GetFrameHeight();
+	f.r = f.h * 0.36f;
+
+	ImGui::InvisibleButton(label, ImVec2(f.w, f.h));
+	f.id = ImGui::GetID(label);
+	f.hovered = ImGui::IsItemHovered();
+	f.active = ImGui::IsItemActive();
+	ImFormatString(f.popupId, sizeof(f.popupId), "##se%08X", f.id);
+	return f;
+}
+
+// Handles the Ctrl+click-to-open (seeding the popup with `seedText`) and the
+// edit-popup run. Returns true when the popup was accepted, with the parsed
+// value in *parsedOut.
+bool SliderEdit(const SliderFrame& f, bool asInt, const char* seedText, double* parsedOut)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	if (f.hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.KeyCtrl)
+	{
+		ImFormatString(g_editPopupBuf, sizeof(g_editPopupBuf), "%s", seedText);
+		g_editPopupPos = io.MousePos;
+		g_editPopupOwner = ImGui::GetID(f.popupId);
+		ImGui::OpenPopup(f.popupId);
+	}
+	return SliderEditPopup(f.popupId, asInt, parsedOut);
+}
 } // namespace
 
 bool StyledSliderFloat(const char* label, float* v, float vmin, float vmax, const char* fmt, ImGuiSliderFlags flags)
 {
 	(void)flags;
-	const ImVec2 pos = ImGui::GetCursorScreenPos();
-	const float w = ImGui::CalcItemWidth();
-	const float h = ImGui::GetFrameHeight();
-	const float r = h * 0.36f;
-
-	ImGui::InvisibleButton(label, ImVec2(w, h));
-	const ImGuiID id = ImGui::GetID(label);
-	const bool hovered = ImGui::IsItemHovered();
-	const bool active = ImGui::IsItemActive();
+	const SliderFrame f = SliderBegin(label);
 	ImGuiIO& io = ImGui::GetIO();
-
-	char popupId[20];
-	ImFormatString(popupId, sizeof(popupId), "##se%08X", id);
 	bool changed = false;
 
-	if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.KeyCtrl)
+	char seed[32];
+	ImFormatString(seed, sizeof(seed), fmt, *v);
+
+	if (f.active && !io.KeyCtrl)
 	{
-		ImFormatString(g_editPopupBuf, sizeof(g_editPopupBuf), fmt, *v);
-		g_editPopupPos = io.MousePos;
-		ImGui::OpenPopup(popupId);
-	}
-	else if (active && !io.KeyCtrl)
-	{
-		const float tnorm = ImClamp((io.MousePos.x - (pos.x + r)) / ImMax(w - 2.0f * r, 1.0f), 0.0f, 1.0f);
+		const float tnorm = ImClamp((io.MousePos.x - (f.pos.x + f.r)) / ImMax(f.w - 2.0f * f.r, 1.0f), 0.0f, 1.0f);
 		const float nv = vmin + tnorm * (vmax - vmin);
 		if (nv != *v) { *v = nv; changed = true; }
 	}
 
 	double parsed = 0.0;
-	if (SliderEditPopup(popupId, false, &parsed))
+	if (SliderEdit(f, false, seed, &parsed))
 	{
 		*v = ImClamp((float)parsed, vmin, vmax);
 		changed = true;
@@ -729,7 +898,7 @@ bool StyledSliderFloat(const char* label, float* v, float vmin, float vmax, cons
 	const float trackT = denom != 0.0f ? (*v - vmin) / denom : 0.0f;
 	char value[32];
 	ImFormatString(value, sizeof(value), fmt, *v);
-	DrawAnimatedSlider(id, pos, w, h, trackT, hovered || active, value);
+	DrawAnimatedSlider(f.id, f.pos, f.w, f.h, trackT, f.hovered || f.active, value);
 	SliderLabel(label);
 	return changed;
 }
@@ -737,36 +906,22 @@ bool StyledSliderFloat(const char* label, float* v, float vmin, float vmax, cons
 bool StyledSliderInt(const char* label, int* v, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags)
 {
 	(void)flags;
-	const ImVec2 pos = ImGui::GetCursorScreenPos();
-	const float w = ImGui::CalcItemWidth();
-	const float h = ImGui::GetFrameHeight();
-	const float r = h * 0.36f;
-
-	ImGui::InvisibleButton(label, ImVec2(w, h));
-	const ImGuiID id = ImGui::GetID(label);
-	const bool hovered = ImGui::IsItemHovered();
-	const bool active = ImGui::IsItemActive();
+	const SliderFrame f = SliderBegin(label);
 	ImGuiIO& io = ImGui::GetIO();
-
-	char popupId[20];
-	ImFormatString(popupId, sizeof(popupId), "##se%08X", id);
 	bool changed = false;
 
-	if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.KeyCtrl)
+	char seed[32];
+	ImFormatString(seed, sizeof(seed), fmt, *v);
+
+	if (f.active && !io.KeyCtrl)
 	{
-		ImFormatString(g_editPopupBuf, sizeof(g_editPopupBuf), fmt, *v);
-		g_editPopupPos = io.MousePos;
-		ImGui::OpenPopup(popupId);
-	}
-	else if (active && !io.KeyCtrl)
-	{
-		const float tnorm = ImClamp((io.MousePos.x - (pos.x + r)) / ImMax(w - 2.0f * r, 1.0f), 0.0f, 1.0f);
+		const float tnorm = ImClamp((io.MousePos.x - (f.pos.x + f.r)) / ImMax(f.w - 2.0f * f.r, 1.0f), 0.0f, 1.0f);
 		const int nv = vmin + (int)(tnorm * (float)(vmax - vmin) + 0.5f);
 		if (nv != *v) { *v = nv; changed = true; }
 	}
 
 	double parsed = 0.0;
-	if (SliderEditPopup(popupId, true, &parsed))
+	if (SliderEdit(f, true, seed, &parsed))
 	{
 		const int nv = (int)(parsed >= 0.0 ? parsed + 0.5 : parsed - 0.5);
 		*v = ImClamp(nv, vmin, vmax);
@@ -777,7 +932,7 @@ bool StyledSliderInt(const char* label, int* v, int vmin, int vmax, const char* 
 	const float trackT = denom != 0.0f ? (float)(*v - vmin) / denom : 0.0f;
 	char value[32];
 	ImFormatString(value, sizeof(value), fmt, *v);
-	DrawAnimatedSlider(id, pos, w, h, trackT, hovered || active, value);
+	DrawAnimatedSlider(f.id, f.pos, f.w, f.h, trackT, f.hovered || f.active, value);
 	SliderLabel(label);
 	return changed;
 }
@@ -861,7 +1016,7 @@ bool StyledCheckbox(const char* label, bool* v)
 
 	if (fillT > 0.001f)
 	{
-		ImVec4 acc = ImGui::GetStyleColorVec4(ImGuiCol_Header);
+		ImVec4 acc = Soften(ImGui::GetStyleColorVec4(ImGuiCol_Header));
 		acc.w = 1.0f;
 		const float pad = (sz * 0.5f) * (1.0f - fillT);
 		dl->AddRectFilled(ImVec2(bmin.x + pad, bmin.y + pad), ImVec2(bmax.x - pad, bmax.y - pad), ImGui::GetColorU32(acc), rounding);
@@ -973,9 +1128,9 @@ bool DrawButtonCore(const char* label, ImVec2 size, int flags, bool smallButton)
 	// reads as a distinct themed widget rather than a stock rectangle.
 	const float rounding = sz.y * 0.5f;
 
-	const ImVec4 base = ImGui::GetStyleColorVec4(ImGuiCol_Button);
-	const ImVec4 hov  = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
-	const ImVec4 act  = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+	const ImVec4 base = Soften(ImGui::GetStyleColorVec4(ImGuiCol_Button));
+	const ImVec4 hov  = Soften(ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
+	const ImVec4 act  = Soften(ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 
 	// Fill crossfades idle→hover→active (snaps when animations are off). Hover
 	// intensity, press-spring scale and the diagonal sheen are the shared
@@ -1023,7 +1178,7 @@ bool DrawButtonCore(const char* label, ImVec2 size, int flags, bool smallButton)
 	// pill outline reads even on themes whose ImGuiCol_Border is transparent;
 	// it brightens from a soft rest alpha up to full on hover.
 	const float borderSize = ImMax(style.FrameBorderSize, 1.0f);
-	ImVec4 rim = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+	ImVec4 rim = Soften(ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 	rim.w = 0.40f + 0.60f * ImClamp(hoverI, 0.0f, 1.0f);
 	dl->AddRect(q0, q1, ImGui::GetColorU32(rim), round2, 0, borderSize);
 
@@ -1124,6 +1279,7 @@ void OpenInputPopup(const char* popupId, const char* initialText)
 {
 	strncpy_s(g_editPopupBuf, sizeof(g_editPopupBuf), initialText ? initialText : "", _TRUNCATE);
 	g_editPopupPos = ImGui::GetIO().MousePos;
+	g_editPopupOwner = ImGui::GetID(popupId);
 	ImGui::OpenPopup(popupId);
 }
 
@@ -1161,7 +1317,7 @@ bool EditFieldCore(const char* label, const char* current, std::string& out, con
 		ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered), ImClamp(hi, 0.0f, 1.0f));
 	dl->AddRectFilled(p0, p1, ImGui::GetColorU32(bg), rounding);
 
-	ImVec4 rim = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+	ImVec4 rim = Soften(ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 	rim.w = 0.30f + 0.50f * ImClamp(hi, 0.0f, 1.0f);
 	dl->AddRect(p0, p1, ImGui::GetColorU32(rim), rounding, 0, ImMax(ImGui::GetStyle().FrameBorderSize, 1.0f));
 

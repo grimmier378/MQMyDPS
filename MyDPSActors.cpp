@@ -68,6 +68,26 @@ bool ContainsName(const std::vector<std::string>& names, const std::string& name
 	}
 	return false;
 }
+
+PeerBattle PeerBattleFromBattleData(const BattleData& b)
+{
+	PeerBattle pb;
+	pb.battleNumber    = b.battleNumber;
+	pb.totalDamage     = b.totalDamage;
+	pb.critDamage      = b.critDamage;
+	pb.dotDamage       = b.dotDamage;
+	pb.petDamage       = b.petDamage;
+	pb.nonMeleeDamage  = b.nonMeleeDamage;
+	pb.dsDamage        = b.dsDamage;
+	pb.directHeals     = b.directHeals;
+	pb.critHeals       = b.critHeals;
+	pb.hitCount        = b.hitCount;
+	pb.durationSeconds = b.durationSeconds;
+	pb.dps             = b.dps;
+	pb.avgDamage       = b.avgDamage;
+	pb.startTimeMs     = b.startTimeMs;
+	return pb;
+}
 } // namespace
 
 void MyDPSActors::Log(const std::string& msg) const
@@ -302,7 +322,7 @@ void MyDPSActors::OnReceive(const std::shared_ptr<mq::postoffice::Message>& msg)
 	case mq::proto::mydps::MyDPSEnvelope::PayloadCase::kLive:
 	{
 		const auto& l = env.live();
-		if (ci_equals(l.character(), m_character))
+		if (ci_equals(l.server(), m_server) && ci_equals(l.character(), m_character))
 		{
 			++m_selfIgnoredCount;
 			return;
@@ -342,7 +362,7 @@ void MyDPSActors::OnReceive(const std::shared_ptr<mq::postoffice::Message>& msg)
 	case mq::proto::mydps::MyDPSEnvelope::PayloadCase::kSession:
 	{
 		const auto& s = env.session();
-		if (ci_equals(s.character(), m_character))
+		if (ci_equals(s.server(), m_server) && ci_equals(s.character(), m_character))
 		{
 			++m_selfIgnoredCount;
 			return;
@@ -374,7 +394,7 @@ void MyDPSActors::OnReceive(const std::shared_ptr<mq::postoffice::Message>& msg)
 	case mq::proto::mydps::MyDPSEnvelope::PayloadCase::kBattle:
 	{
 		const auto& b = env.battle();
-		if (ci_equals(b.character(), m_character))
+		if (ci_equals(b.server(), m_server) && ci_equals(b.character(), m_character))
 		{
 			++m_selfIgnoredCount;
 			return;
@@ -464,10 +484,6 @@ void MyDPSActors::BuildSelfRecord()
 	m_selfRecord.server = m_server;
 	m_selfRecord.character = m_character;
 	m_selfRecord.isSelf = true;
-	if (m_selfRecord.color.x == 1.0f && m_selfRecord.color.y == 1.0f && m_selfRecord.color.z == 1.0f)
-	{
-		m_selfRecord.color = PeerColorForName(m_character);
-	}
 	if (pLocalPlayer)
 	{
 		if (const char* cls = pLocalPlayer->GetClassThreeLetterCode())
@@ -504,22 +520,7 @@ void MyDPSActors::BuildSelfRecord()
 	for (size_t i = start; i < total; ++i)
 	{
 		const BattleData& bd = m_engine->battleHistory[i];
-		PeerBattle pb;
-		pb.battleNumber    = bd.battleNumber;
-		pb.totalDamage     = bd.totalDamage;
-		pb.critDamage      = bd.critDamage;
-		pb.dotDamage       = bd.dotDamage;
-		pb.petDamage       = bd.petDamage;
-		pb.nonMeleeDamage  = bd.nonMeleeDamage;
-		pb.dsDamage        = bd.dsDamage;
-		pb.directHeals     = bd.directHeals;
-		pb.critHeals       = bd.critHeals;
-		pb.hitCount        = bd.hitCount;
-		pb.durationSeconds = bd.durationSeconds;
-		pb.dps             = bd.dps;
-		pb.avgDamage       = bd.avgDamage;
-		pb.startTimeMs     = bd.startTimeMs;
-		m_selfRecord.battles.push_back(pb);
+		m_selfRecord.battles.push_back(PeerBattleFromBattleData(bd));
 	}
 }
 

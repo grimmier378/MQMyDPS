@@ -41,11 +41,10 @@ public:
 	const std::string& GetPatternsPath() const { return m_patternsPath; }
 
 private:
-	using BuilderFn = void(MyDPSPatternEngine::*)(DamageRecord&, PBLECHVALUE);
+	using BuilderFn = bool(MyDPSPatternEngine::*)(DamageRecord&, PBLECHVALUE);
 
 	void GenerateDefaults();
 	void InitBuilders();
-	std::string SubstituteToken(const std::string& pat, const std::string& token, const std::string& value);
 
 	static std::string GetBlechValue(PBLECHVALUE pValues, const char* name);
 	static int64_t     GetBlechInt(PBLECHVALUE pValues, const char* name);
@@ -56,21 +55,21 @@ private:
 	static void CALLBACK BlechCallback(unsigned int id, void* pData, PBLECHVALUE pValues);
 	static unsigned int CALLBACK BlechVarCallback(char* varName, char* value, size_t valueLen);
 
-	void BuildMelee(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildMiss(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildNonMelee(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildCrit(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildDeadlyStrike(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildDoT(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildDamageShield(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildHitBy(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildMissedMe(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildCritHeal(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildDirectHeal(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildHealedBy(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildHitByNonMelee(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildPetMelee(DamageRecord& rec, PBLECHVALUE pValues);
-	void BuildPetNonMelee(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildMelee(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildMiss(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildNonMelee(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildCrit(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildDeadlyStrike(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildDoT(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildDamageShield(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildHitBy(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildMissedMe(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildCritHeal(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildDirectHeal(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildHealedBy(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildHitByNonMelee(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildPetMelee(DamageRecord& rec, PBLECHVALUE pValues);
+	bool BuildPetNonMelee(DamageRecord& rec, PBLECHVALUE pValues);
 
 	std::unique_ptr<Blech>                          m_blech;
 	std::vector<PatternDef>                         m_patterns;
