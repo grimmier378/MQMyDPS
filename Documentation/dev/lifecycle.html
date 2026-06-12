@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plugin Lifecycle — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html" class="active">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-07</em></p>
+    <h1>Plugin Lifecycle</h1>
+
+    <h2>Plugin Callbacks</h2>
+    <p>MacroQuest calls these entry points at specific moments in the plugin and game lifecycle. All are defined in <code>MQMyDPS.cpp</code>.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Callback</th>
+                <th>File:Line</th>
+                <th>When Called</th>
+                <th>What It Does</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>InitializePlugin</code></td>
+                <td><code>MQMyDPS.cpp:23</code></td>
+                <td>Plugin loads (<code>/plugin MQMyDPS</code>)</td>
+                <td>Creates <code>g_dpsEngine</code>, calls <code>Initialize()</code> (creates pattern engine, sets default colors, starts session timer), registers <code>/mydps</code> command, settings panel, and TLO</td>
+            </tr>
+            <tr>
+                <td><code>ShutdownPlugin</code></td>
+                <td><code>MQMyDPS.cpp:32</code></td>
+                <td>Plugin unloads</td>
+                <td>Unregisters TLO, settings panel, and command. Calls <code>Shutdown()</code> which saves settings and shuts down the pattern engine (unregisters all Blech events). Deletes the engine. Finally <code>iam_context_destroy</code>s the owned imanim context (mandatory &mdash; removes it from imanim's global list so the host's next frame doesn't walk a freed pointer)</td>
+            </tr>
+            <tr>
+                <td><code>SetGameState</code></td>
+                <td><code>MQMyDPS.cpp:48</code></td>
+                <td>Game state transitions</td>
+                <td><code>GAMESTATE_INGAME</code>: calls <code>LoadCharacterSettings()</code> (initializes pattern engine, loads patterns from JSON, registers Blech events, calls <code>actors.Init()</code> to register the peer mailbox). <code>GAMESTATE_CHARSELECT</code>: calls <code>UnloadCharacterSettings()</code> (unregisters events, calls <code>actors.Shutdown()</code>, saves settings, clears char/server names)</td>
+            </tr>
+            <tr>
+                <td><code>OnIncomingChat</code></td>
+                <td><code>MQMyDPS.cpp:65</code></td>
+                <td>Every chat line received</td>
+                <td>If <code>tracking</code> is true, passes the line to <code>ProcessChat()</code>. Always returns <code>false</code> (never suppresses chat)</td>
+            </tr>
+            <tr>
+                <td><code>OnPulse</code></td>
+                <td><code>MQMyDPS.cpp:74</code></td>
+                <td>Every game tick</td>
+                <td>250ms throttle via <code>steady_clock</code>. Runs <code>actors.Pulse()</code> unconditionally (peer publish/prune); then, only while tracking is active, <code>TrackDoTCasting</code>, <code>UpdateCombatState</code>, <code>CleanExpiredRecords</code>, <code>RefreshAggregates</code>. Also lazily calls <code>actors.Init()</code> once <code>pLocalPC</code> is available</td>
+            </tr>
+            <tr>
+                <td><code>OnUpdateImGui</code></td>
+                <td><code>MQMyDPS.cpp:117</code></td>
+                <td>Every render frame</td>
+                <td>On first call creates the plugin-owned <code>iam_context</code> (with <code>iam_set_lazy_init(false)</code>); each frame makes it current around the render pass and restores the previous context after. Does <strong>not</strong> call <code>iam_update_begin_frame()</code> (the host drives the shared clock). Calls renderer methods for all UI elements: main window, pop-out tab windows, config window, combat spam, floating text, icon picker</td>
+            </tr>
+            <tr>
+                <td><code>OnBeginZone</code></td>
+                <td><code>MQMyDPS.cpp:142</code></td>
+                <td>Zone transition starts</td>
+                <td>Saves settings, clears <code>inCombat</code>, clears <code>activeDoTs</code>, clears FCT entries</td>
+            </tr>
+            <tr>
+                <td><code>OnRemoveSpawn</code></td>
+                <td><code>MQMyDPS.cpp:153</code></td>
+                <td>A spawn despawns from the zone</td>
+                <td>Calls <code>RemoveActiveDoTs(pSpawn-&gt;SpawnID)</code> to clean up the DoT registry for that spawn</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        <strong>250ms throttle:</strong> The <code>OnPulse</code> throttle prevents expensive operations like <code>GetCombatState()</code> and XTarget list scans from running hundreds of times per second. EQ ticks at roughly 60 FPS, so without the throttle these would run ~60 times/sec. The 250ms interval (4 times/sec) is sufficient for combat state tracking and DoT monitoring while keeping CPU usage negligible.
+    </div>
+
+    <h2>Combat State Machine</h2>
+    <p>Combat tracking uses a three-state machine with a configurable delay before finalizing a battle. This prevents brief non-combat windows (mob running, fear, root breaks) from splitting a single fight into multiple battles.</p>
+
+    <div class="diagram">
+IDLE (inCombat=false)
+  |
+  |  RecordDamage: outgoing damage detected
+  |  (isDamageOut && !isMiss && damage > 0)
+  v
+ACTIVE (inCombat=true, m_combatEndPending=false)
+  |
+  |  UpdateCombatState: GetCombatState() != eCombatState_Combat
+  |  Sets m_combatEndPending=true, records m_leftCombatTime
+  v
+PENDING_END (inCombat=true, m_combatEndPending=true)
+  |
+  +-- GetCombatState() == Combat --> back to ACTIVE (pending cleared)
+  |
+  +-- elapsed >= battleEndDelay --> FinalizeBattle()
+                                        |
+                                        v
+                                     IDLE
+    </div>
+
+    <h3>IDLE to ACTIVE</h3>
+    <p><code>RecordDamage</code> (<code>MQMyDPS.cpp:661</code>) detects outgoing damage and transitions to ACTIVE. The <code>isDamageOut</code> flag excludes incoming damage types: <code>HitBy</code>, <code>HitByNonMelee</code>, <code>MissedMe</code>, <code>CritHeal</code>, and <code>DirectHeal</code>. Additionally, misses (<code>isMiss</code>) and zero-damage records do not trigger combat start.</p>
+    <p>On transition, the engine resets all per-battle accumulators (<code>battleDamage</code>, <code>battleCritDamage</code>, <code>battleDotDamage</code>, <code>battlePetDamage</code>, <code>battleNonMeleeDmg</code>, <code>battleDsDamage</code>, <code>battleDirectHeals</code>, <code>battleCritHeals</code>, <code>battleHitCount</code>), clears <code>currentTargets</code> and <code>currentHealTargets</code>, and records <code>battleStartTime</code>.</p>
+
+    <h3>ACTIVE to PENDING_END</h3>
+    <p><code>UpdateCombatState</code> (<code>MQMyDPS.cpp:894</code>) runs every 250ms and checks <code>GetCombatState()</code>. When the game reports the player is no longer in combat (<code>!= eCombatState_Combat</code>), it sets <code>m_combatEndPending = true</code> and records <code>m_leftCombatTime</code>. When the game again reports <code>eCombatState_Combat</code>, <code>UpdateCombatState</code> clears <code>m_combatEndPending</code> and the fight continues (line 922).</p>
+
+    <h3>PENDING_END to IDLE</h3>
+    <p>If the elapsed time since <code>m_leftCombatTime</code> exceeds <code>settings.battleEndDelay</code> (default 10 seconds) without new damage, <code>FinalizeBattle</code> (<code>MQMyDPS.cpp:926</code>) executes. It creates a <code>BattleData</code> struct, calculates DPS and average damage, <code>std::move</code>s <code>currentTargets</code> and <code>currentHealTargets</code> into the battle record, sends a summary report to MQMyChat, publishes the battle to peers via <code>actors.PublishFinalizedBattle()</code> (<code>MQMyDPS.cpp:972</code>), and pushes the battle to <code>battleHistory</code>.</p>
+
+    <h3>Why the delay?</h3>
+    <p>Brief non-combat windows are common in EQ: a mob running to reset, fear/root breaking, or transitioning between linked encounters. The default 10-second delay covers most of these cases. Players can adjust <code>battleEndDelay</code> in the config window (stored as <code>[Options] BattleEndDelay</code> in the INI).</p>
+
+    <h2>Settings Persistence</h2>
+
+    <h3>INI Location</h3>
+    <p>Settings are stored per-character, per-server:</p>
+    <pre>[MQ Config Dir]\MQMyDPS\[Server]\[CharName].ini</pre>
+    <p>The directory tree is auto-created by <code>SaveCharacterSettings</code> (<code>MQMyDPS.cpp:493</code>) via <code>std::filesystem::create_directories()</code> on the parent path.</p>
+
+    <h3>Save Triggers</h3>
+    <ul>
+        <li>Config Save button in the UI</li>
+        <li>Plugin shutdown (<code>Shutdown()</code> calls <code>SaveCharacterSettings</code>)</li>
+        <li>Character select (<code>UnloadCharacterSettings</code> calls <code>SaveCharacterSettings</code>)</li>
+        <li>Zone transition (<code>OnBeginZone</code> calls <code>SaveCharacterSettings</code>)</li>
+    </ul>
+
+    <h3>Load Trigger</h3>
+    <p><code>SetGameState(GAMESTATE_INGAME)</code> calls <code>LoadCharacterSettings()</code> (<code>MQMyDPS.cpp:348</code>). If the INI file does not exist, all settings retain their compiled defaults.</p>
+
+    <h3>[Options] Section (16 keys)</h3>
+    <table>
+        <thead>
+            <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>SortNewest</td><td>bool</td><td>true</td><td><code>settings.sortNewest</code></td></tr>
+            <tr><td>ShowType</td><td>bool</td><td>true</td><td><code>settings.showType</code></td></tr>
+            <tr><td>ShowTarget</td><td>bool</td><td>true</td><td><code>settings.showTarget</code></td></tr>
+            <tr><td>ShowMyMisses</td><td>bool</td><td>true</td><td><code>settings.showMyMisses</code></td></tr>
+            <tr><td>ShowMissMe</td><td>bool</td><td>true</td><td><code>settings.showMissMe</code></td></tr>
+            <tr><td>ShowHitMe</td><td>bool</td><td>true</td><td><code>settings.showHitMe</code></td></tr>
+            <tr><td>ShowCritHeals</td><td>bool</td><td>true</td><td><code>settings.showCritHeals</code></td></tr>
+            <tr><td>ShowDS</td><td>bool</td><td>true</td><td><code>settings.showDS</code></td></tr>
+            <tr><td>AddPet</td><td>bool</td><td>true</td><td><code>settings.addPet</code></td></tr>
+            <tr><td>AutoStart</td><td>bool</td><td>false</td><td><code>settings.autoStart</code></td></tr>
+            <tr><td>SpamClickThrough</td><td>bool</td><td>true</td><td><code>settings.spamClickThrough</code></td></tr>
+            <tr><td>DisplayTime</td><td>int</td><td>10</td><td><code>settings.displayTime</code></td></tr>
+            <tr><td>BattleEndDelay</td><td>int</td><td>10</td><td><code>settings.battleEndDelay</code></td></tr>
+            <tr><td>FontScale</td><td>float</td><td>1.0</td><td><code>settings.fontScale</code></td></tr>
+            <tr><td>SpamFontScale</td><td>float</td><td>1.0</td><td><code>settings.spamFontScale</code></td></tr>
+            <tr><td>ThemeIdx</td><td>int</td><td>10</td><td><code>settings.themeIdx</code></td></tr>
+        </tbody>
+    </table>
+
+    <h3>[Windows] Section (3 keys)</h3>
+    <table>
+        <thead>
+            <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>ShowMain</td><td>bool</td><td>true</td><td><code>showMainWindow</code></td></tr>
+            <tr><td>ShowConfig</td><td>bool</td><td>false</td><td><code>showConfigWindow</code></td></tr>
+            <tr><td>ShowCombatSpam</td><td>bool</td><td>true</td><td><code>showCombatSpam</code></td></tr>
+        </tbody>
+    </table>
+
+    <h3>[Group] Section (3 keys)</h3>
+    <table>
+        <thead>
+            <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>ShowPeers</td><td>bool</td><td>true</td><td><code>settings.showPeers</code></td></tr>
+            <tr><td>FilterMode</td><td>int</td><td>0</td><td><code>settings.peerFilterMode</code> (clamped 0&ndash;3)</td></tr>
+            <tr><td>Debug</td><td>bool</td><td>false</td><td><code>settings.debugMode</code></td></tr>
+        </tbody>
+    </table>
+
+    <h3>[FCT] Section (20 keys)</h3>
+    <table>
+        <thead>
+            <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Enabled</td><td>bool</td><td>false</td><td><code>settings.showFCT</code></td></tr>
+            <tr><td>Melee</td><td>bool</td><td>true</td><td><code>settings.showFCT_Melee</code></td></tr>
+            <tr><td>DD</td><td>bool</td><td>true</td><td><code>settings.showFCT_DD</code></td></tr>
+            <tr><td>DoT</td><td>bool</td><td>true</td><td><code>settings.showFCT_DoT</code></td></tr>
+            <tr><td>Pet</td><td>bool</td><td>true</td><td><code>settings.showFCT_Pet</code></td></tr>
+            <tr><td>Crit</td><td>bool</td><td>true</td><td><code>settings.showFCT_Crit</code></td></tr>
+            <tr><td>Heals</td><td>bool</td><td>true</td><td><code>settings.showFCT_Heals</code></td></tr>
+            <tr><td>CritHeals</td><td>bool</td><td>true</td><td><code>settings.showFCT_CritHeals</code></td></tr>
+            <tr><td>HitBy</td><td>bool</td><td>true</td><td><code>settings.showFCT_HitBy</code></td></tr>
+            <tr><td>DS</td><td>bool</td><td>true</td><td><code>settings.showFCT_DS</code></td></tr>
+            <tr><td>Icons</td><td>bool</td><td>true</td><td><code>settings.showFCT_Icons</code></td></tr>
+            <tr><td>DistinctMelee</td><td>bool</td><td>true</td><td><code>settings.fctDistinctMelee</code></td></tr>
+            <tr><td>UseSpellIcons</td><td>bool</td><td>false</td><td><code>settings.fctUseSpellIcons</code></td></tr>
+            <tr><td>IconScale</td><td>float</td><td>1.0</td><td><code>settings.fctIconScale</code></td></tr>
+            <tr><td>FloatDistance</td><td>float</td><td>150.0</td><td><code>settings.fctFloatDistance</code></td></tr>
+            <tr><td>ArcScale</td><td>float</td><td>1.0</td><td><code>settings.fctArcScale</code></td></tr>
+            <tr><td>Lifetime</td><td>float</td><td>2.5</td><td><code>settings.fctLifetime</code></td></tr>
+            <tr><td>BaseFontSize</td><td>float</td><td>24.0</td><td><code>settings.fctBaseFontSize</code></td></tr>
+            <tr><td>FontScale</td><td>float</td><td>1.5</td><td><code>settings.fctFontScale</code></td></tr>
+            <tr><td>ShadowOffset</td><td>float</td><td>2.0</td><td><code>settings.fctShadowOffset</code></td></tr>
+        </tbody>
+    </table>
+
+    <h3>[FCT] Integer Keys (2 keys)</h3>
+    <table>
+        <thead>
+            <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>BonePlayer</td><td>int</td><td>11</td><td><code>settings.fctBonePlayer</code></td></tr>
+            <tr><td>BoneOther</td><td>int</td><td>20</td><td><code>settings.fctBoneOther</code></td></tr>
+        </tbody>
+    </table>
+
+    <h3>[FCTIcons] Section</h3>
+    <p>Dynamic key/value pairs. Each key corresponds to an FCT type key from <code>GetFCTTypeInfoList()</code>. Values are integer icon IDs. A value of <code>-1</code> means "use default icon logic." A value of <code>FCT_ICON_NONE</code> disables the icon for that type. Positive values override with a specific spell/item icon ID.</p>
+
+    <h3>[Colors] Section</h3>
+    <p>Each key in <code>settings.damageColors</code> is stored as an <code>MQColor</code> via <code>WritePrivateProfileColor</code>/<code>GetPrivateProfileColor</code>. An additional <code>background</code> key stores <code>settings.bgColor</code>. Color keys correspond to damage type color keys (e.g., <code>hit</code>, <code>non-melee</code>, <code>dot</code>, <code>crit</code>, <code>heal</code>, etc.).</p>
+
+    <h2>Float Range Clamping</h2>
+    <div class="warning">
+        <strong>Warning:</strong> All float settings are read with MQ's typed <code>GetPrivateProfileFloat()</code> helper and range-clamped immediately after parsing. If a value falls outside the valid range, it is reset to its compiled default. This prevents corrupted INI files from causing rendering issues. (Int and bool keys use <code>GetPrivateProfileInt()</code> / <code>GetPrivateProfileBool()</code>; floats are written back with <code>WritePrivateProfileFloat()</code>.)
+    </div>
+
+    <table>
+        <thead>
+            <tr><th>Setting</th><th>Min</th><th>Max</th><th>Default</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>fontScale</code></td><td>0.5</td><td>2.0</td><td>1.0</td></tr>
+            <tr><td><code>spamFontScale</code></td><td>0.5</td><td>2.0</td><td>1.0</td></tr>
+            <tr><td><code>fctLifetime</code></td><td>1.0</td><td>5.0</td><td>2.5</td></tr>
+            <tr><td><code>fctBaseFontSize</code></td><td>12.0</td><td>48.0</td><td>24.0</td></tr>
+            <tr><td><code>fctFontScale</code></td><td>0.5</td><td>3.0</td><td>1.5</td></tr>
+            <tr><td><code>fctShadowOffset</code></td><td>0.0</td><td>5.0</td><td>2.0</td></tr>
+            <tr><td><code>fctIconScale</code></td><td>0.1</td><td>1.0</td><td>1.0</td></tr>
+            <tr><td><code>fctFloatDistance</code></td><td>30.0</td><td>300.0</td><td>150.0</td></tr>
+            <tr><td><code>fctArcScale</code></td><td>0.0</td><td>3.0</td><td>1.0</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Session Aggregation</h2>
+    <p>The engine maintains two levels of target tracking: per-battle (<code>currentTargets</code>/<code>currentHealTargets</code>) and per-session (<code>cachedSessionTargets</code>/<code>cachedSessionHeals</code>). Session data accumulates across all battles and is never cleared except by <code>/mydps reset</code>.</p>
+
+    <h3>Data Flow</h3>
+    <p>When <code>RecordDamage</code> processes a hit, it updates both the per-battle map entry and the per-session map entry simultaneously. It then sets <code>aggregateDirty = true</code>.</p>
+
+    <h3>RefreshAggregates</h3>
+    <p><code>RefreshAggregates</code> (<code>MQMyDPS.cpp:1013</code>) runs in <code>OnPulse</code> (every 250ms) only when <code>aggregateDirty</code> is true. It rebuilds the sorted vectors:</p>
+    <ul>
+        <li><code>sortedSessionTargets</code> &mdash; all <code>TargetDamageData</code> entries from <code>cachedSessionTargets</code>, sorted by <code>totalDamage</code> descending</li>
+        <li><code>sortedSessionHeals</code> &mdash; all <code>HealTargetData</code> entries from <code>cachedSessionHeals</code>, sorted by <code>GetTotalHeals()</code> descending</li>
+    </ul>
+    <p>The Targets and Healing tabs in the main window read from these pre-sorted vectors rather than iterating and sorting the maps on every frame. This decouples the rendering cost from the data size.</p>
+
+    <div class="tip">
+        <strong>Tip:</strong> The dirty flag pattern means that if no new damage arrives, <code>RefreshAggregates</code> is a no-op. During heavy combat with many targets, the sort runs at most 4 times per second (250ms throttle), which is more than sufficient for UI refresh.
+    </div>
+
+    <div class="page-nav">
+        <a href="types.html">&larr; Types &amp; Constants</a>
+        <span> | </span>
+        <a href="parsing.html">Next: Pattern Engine &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

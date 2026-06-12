@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Styled Widgets — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html" class="active">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-08</em></p>
+    <h1>Styled Widgets (imanim)</h1>
+
+    <p>MQMyDPS's UI chrome uses a shared, theme-driven, <strong>animated</strong> widget set that replaces
+    stock ImGui controls with a consistent vocabulary: sliding <strong>pill</strong> tabs, animated
+    <strong>checkboxes</strong>, glowing-rail <strong>sliders</strong> (with a Ctrl+click edit popup),
+    custom <strong>combos</strong>, a pill&rarr;bordered-box <strong>collapsing header</strong>, animated
+    <strong>buttons</strong> (<code>StyledButton</code>), and a <strong>click-to-edit</strong> text field
+    (<code>StyledEditField</code> &mdash; a readonly display that opens a cursor-anchored Accept/Cancel
+    popup). Motion is driven by <strong>imanim</strong> (<code>iam_*</code>), the animation library compiled
+    into MQ core's ImGui. The set lives in <code>Widgets.{h,cpp}</code> (<code>namespace myui</code>).</p>
+
+    <div class="note">
+        <strong>Animations default on.</strong> A global gate, <code>myui::SetAnimationsEnabled(bool)</code>
+        / <code>AnimationsEnabled()</code>, can snap every styled widget to its resting state. MQMyDPS keeps
+        it at its default (<code>true</code>) and exposes no toggle &mdash; nothing to wire.
+    </div>
+
+    <div class="note">
+        <strong>Source of truth.</strong> These files are <em>copied</em> from MQMyUI's
+        <code>Core/Widgets.{h,cpp}</code> and kept content-identical so the whole MQMy* suite shares one
+        vocabulary. Do not diverge MQMyDPS's copy; pull updates from MyUI instead. Full integration
+        rules, the tuned style constants, reveal internals, and gotchas live in the
+        <strong>MQMyUI KB &rarr; Styled &amp; Animated Widgets</strong>
+        (<code>D:\CLAUDE\MQMyUI\KnowledgeBase\styled-widgets.md</code>). Tuned interactively in
+        <code>D:\CLAUDE\MQMyUI\demos\style-playground.html</code>.
+    </div>
+
+    <h2>imanim context wiring</h2>
+    <p>imanim state lives in a file-static <em>current context</em> that is not valid-by-default inside a
+    plugin DLL, so the plugin <strong>owns a context</strong> and makes it current around its render pass.
+    All of this is in <code>MQMyDPS.cpp</code>:</p>
+
+    <pre><code>static iam_context* s_iamCtx = nullptr;            // MQMyDPS.cpp
+
+PLUGIN_API void OnUpdateImGui()                     // :117
+{
+    if (!g_dpsEngine || GetGameState() != GAMESTATE_INGAME) { return; }
+
+    if (!s_iamCtx)
+    {
+        s_iamCtx = iam_context_create();
+        iam_context_set_current(s_iamCtx);
+        iam_set_lazy_init(false);                   // animate on first change, don't snap
+    }
+    iam_context* prevCtx = iam_context_set_current(s_iamCtx);
+    // NB: no iam_update_begin_frame() here -- the host drives the shared clock.
+
+    s_renderer.RenderMainWindow(*g_dpsEngine);
+    /* ... the other Render* calls ... */
+
+    iam_context_set_current(prevCtx);
+}
+
+PLUGIN_API void ShutdownPlugin()                    // :32
+{
+    /* ... */
+    if (s_iamCtx) { iam_context_destroy(s_iamCtx); s_iamCtx = nullptr; }
+}</code></pre>
+
+    <div class="warning">
+        <strong>Three things you must not get wrong:</strong>
+        <ul>
+            <li><strong>Do not call <code>iam_update_begin_frame()</code></strong> in the plugin &mdash; the
+                host (MQ2Main <code>ImGuiManager</code>) already advances imanim's shared clock once per
+                frame. Calling it again runs every animation at 2&times; speed.</li>
+            <li><strong>Disable lazy-init</strong> (<code>iam_set_lazy_init(false)</code>) on the owned
+                context, or a channel whose first target equals its init value is never created and the
+                widget snaps instead of tweening (tab pill, reveal heights).</li>
+            <li><strong>Destroy the context on unload.</strong> <code>iam_context_destroy</code>
+                <code>find_erase</code>s it from imanim's global list; skip it and the host's next
+                per-frame update walks a freed pointer and crashes.</li>
+        </ul>
+    </div>
+
+    <p>No <code>.vcxproj</code> changes are needed beyond compiling <code>Widgets.cpp</code>: the
+    <code>iam_*</code> symbols are <code>IMGUI_API</code>, imported from <code>MQ2Main.dll</code> via the
+    already-linked <code>mq2main.lib</code>, and the <code>imgui/imanim/im_anim.h</code> include path comes
+    from <code>Plugin.props</code>.</p>
+
+    <h2>Widget catalog</h2>
+    <p>All widgets read theme colors live from <code>ImGuiCol_*</code> (so themes restyle them for free)
+    and key their tween state on <code>ImGui::GetID(label)</code>. The files are re-synced as whole copies
+    from MyUI, so <code>.cpp</code> line numbers drift on every sync &mdash; the <strong>Widgets.h</strong>
+    column below anchors to the stable declarations instead.</p>
+
+    <table>
+        <thead><tr><th>Widget</th><th>Widgets.h</th><th>Notes</th></tr></thead>
+        <tbody>
+            <tr><td><code>StyledButton(label, size=0, flags=-1) &rarr; bool</code></td><td>81</td><td>Drop-in for <code>ImGui::Button</code>; theme-colored pill with hover glow / press-sink / shimmer (<code>ButtonFlags</code>).</td></tr>
+            <tr><td><code>StyledSmallButton(label, flags=-1) &rarr; bool</code></td><td>82</td><td>Drop-in for <code>ImGui::SmallButton</code> (no vertical pad).</td></tr>
+            <tr><td><code>PillTabBar(id, labels[], count, current) &rarr; int</code></td><td>88</td><td>Sliding-pill tab strip; <strong>returns the selected index</strong> &mdash; caller stores it and renders the body below.</td></tr>
+            <tr><td><code>PillSelectable(label, selected, width=0) &rarr; bool</code></td><td>91</td><td>List/combo item; fill + text-color tween. In an auto-sizing popup needs a fixed width.</td></tr>
+            <tr><td><code>BeginAnimatedTreeNode / End</code></td><td>99 / 100</td><td>Caller-owned <code>bool* open</code>; height reveal + chevron. <em>Not</em> used in MyDPS (table layout conflict).</td></tr>
+            <tr><td><code>BeginAnimatedHeader / End</code></td><td>104 / 105</td><td>Self-managed collapsing header (pill &rarr; bordered box). Used by the peer live-meter.</td></tr>
+            <tr><td><code>StyledSliderFloat / Int</code></td><td>110 / 111</td><td>Glowing rail + accent fill + thumb; respects <code>SetNextItemWidth</code>. <strong>Ctrl+click &rarr; edit popup</strong>.</td></tr>
+            <tr><td><code>StyledCombo(label, int*, items[], count)</code></td><td>116</td><td>Array form; closes the popup on selection.</td></tr>
+            <tr><td><code>StyledBeginCombo / End</code></td><td>117 / 118</td><td>Rounded frame + animated chevron; render items with <code>PillSelectable</code>.</td></tr>
+            <tr><td><code>StyledCheckbox(label, bool*)</code></td><td>122</td><td>Drop-in for <code>ImGui::Checkbox</code>; box fill (out_back) + checkmark stroke (out_cubic).</td></tr>
+            <tr><td><code>HelpMarker(desc)</code></td><td>126</td><td><code>(?)</code> trailing marker with a delayed, wrapped tooltip.</td></tr>
+            <tr><td><code>OpenInputPopup(id, initial)</code> / <code>InputPopup(id, out, hint=0) &rarr; bool</code></td><td>132 / 133</td><td>Cursor-anchored Accept/Cancel text popup; <code>InputPopup</code> returns true and fills <code>out</code> <strong>only on accept</strong>. One open at a time (shared buffer, 256 chars).</td></tr>
+            <tr><td><code>StyledEditField(label, std::string* | char*, hint=0) &rarr; bool</code></td><td>141 / 142</td><td>Readonly rounded display + pencil; click opens the <code>InputPopup</code>, writes the value only on accept. Drop-in for an <code>InputText</code> on persistent fields.</td></tr>
+            <tr><td><code>DrawToggle(id, bool*, flags, size)</code></td><td>28</td><td>Animated on/off toggle (Star/Moon knob, glow/pulse). Available; not used in MyDPS (uses <code>StyledCheckbox</code>).</td></tr>
+        </tbody>
+    </table>
+    <p>Helper primitives are also exported for custom controls: <code>SetAnimationsEnabled</code>/<code>AnimationsEnabled</code>
+    (34/35), <code>SoftGlowRoundRect</code> (40), <code>Soften</code> (45), <code>HoverIntensity</code> (53),
+    <code>PressScale</code> (58), <code>DrawHoverShimmer</code> (63).</p>
+
+    <h2>Converting a call site</h2>
+    <table>
+        <thead><tr><th>Stock</th><th>Styled</th><th>How</th></tr></thead>
+        <tbody>
+            <tr><td><code>ImGui::Button</code> / <code>SmallButton</code></td><td><code>myui::StyledButton</code> / <code>StyledSmallButton</code></td><td>Drop-in &mdash; same signature/return. Used for Config Save/Load, Patterns Save/Reload, FCT icon actions, and the input-popup Accept/Cancel.</td></tr>
+            <tr><td><code>ImGui::Checkbox</code></td><td><code>myui::StyledCheckbox</code></td><td>Drop-in &mdash; same <code>(label, bool*)</code> signature.</td></tr>
+            <tr><td><code>ImGui::InputText</code> (persistent value)</td><td><code>myui::StyledEditField</code></td><td>Readonly display + click-to-edit popup. Pass <code>&amp;value</code> (a <code>std::string*</code>); writes only on accept. Keep any preceding <code>SetNextItemWidth</code>. Used for the chat/pet pattern cells.</td></tr>
+            <tr><td><code>ImGui::SliderInt/Float</code></td><td><code>myui::StyledSliderInt/Float</code></td><td>Same args; keep any preceding <code>SetNextItemWidth</code> (the slider honors <code>CalcItemWidth</code>). The <code>flags</code> arg is accepted but clamping is inherent.</td></tr>
+            <tr><td><code>ImGui::BeginCombo</code> + <code>Selectable</code></td><td><code>StyledBeginCombo</code> + <code>PillSelectable</code> + <code>StyledEndCombo</code></td><td>Replace each <code>Selectable</code> with <code>PillSelectable</code>; drop <code>SetItemDefaultFocus</code>. Give the combo a defined item width so the popup isn't a sliver.</td></tr>
+            <tr><td><code>ImGui::Combo</code> (array)</td><td><code>myui::StyledCombo</code></td><td>Same array signature.</td></tr>
+            <tr><td><code>ImGui::CollapsingHeader</code></td><td><code>myui::BeginAnimatedHeader</code> / <code>EndAnimatedHeader</code></td><td>Call <code>End</code> only when <code>Begin</code> returned true.</td></tr>
+            <tr><td><code>BeginTabBar</code> / <code>BeginTabItem</code></td><td><code>myui::PillTabBar</code></td><td>Model change &mdash; see below.</td></tr>
+        </tbody>
+    </table>
+
+    <h3>The PillTabBar model</h3>
+    <p>Stock tabs render their body inline between <code>BeginTabItem</code>/<code>EndTabItem</code>.
+    <code>PillTabBar</code> instead returns the selected index; the caller stores it (e.g. in a member)
+    and renders the matching body below the strip. MyDPS uses three patterns:</p>
+    <ul>
+        <li><strong>Peers sub-tabs / Icon Picker</strong> &mdash; store the index, render the body in a
+            <code>switch</code>.</li>
+        <li><strong>Config tabs</strong> &mdash; the bar replaces <code>BeginTabBar</code>; an anonymous
+            scope keeps the original brace/indent structure and each former <code>BeginTabItem</code>
+            becomes <code>if (m_configTab == N)</code>.</li>
+        <li><strong>Main DPS tabs</strong> &mdash; the strip is fed only visible (non-popped-out) tabs;
+            <code>m_mainTab</code> stores the <em>real</em> tab id and the returned index is mapped back.
+            Pop-out is re-attached at strip level: <code>IsItemHovered() &amp;&amp; IsMouseClicked(Right)</code>
+            &rarr; popup &rarr; set <code>m_tabPopOut[m_mainTab]</code>.</li>
+    </ul>
+
+    <h2>What stays stock (and why)</h2>
+    <ul>
+        <li><strong>ImPlot graphs</strong> and the <strong>FCT floating-text renderer</strong> &mdash; data
+            visualizations, not chrome (analogous to how MyUI leaves <code>BarEngine</code> out of the set).</li>
+        <li><strong>In-table History tree expanders</strong> &mdash; the animated tree node opens a clipped
+            <code>BeginChild</code> that fights ImGui table-cell layout, so those stay <code>ImGui::TreeNode</code>.</li>
+        <li><strong><code>ColorEdit4</code> pickers</strong> &mdash; not part of the widget set.</li>
+        <li><strong>The FCT icon-picker <code>InvisibleButton</code> hit-cells</strong> &mdash; custom-drawn icon
+            cells, not visual buttons. (The pattern <code>InputText</code> fields are now
+            <code>StyledEditField</code>; only these hit-surfaces stay stock.)</li>
+    </ul>
+
+    <h2>Gotchas</h2>
+    <ul>
+        <li>Auto-sizing combo popups + <code>PillSelectable</code> need a defined width or the pills
+            collapse to a sliver; <code>StyledCombo</code> already calls <code>CloseCurrentPopup()</code>
+            after a pick.</li>
+        <li>The styled slider needs <code>vmin &lt; vmax</code>; it guards a zero range without crashing
+            (e.g. the icon-picker Page slider when there's a single page).</li>
+        <li>Build and the running client's MQ core must match (ABI skew was the original imanim crash).</li>
+        <li>Style constants are the playground export &mdash; re-tune in the playground and re-paste, don't
+            hand-edit blindly.</li>
+    </ul>
+
+    <div class="page-nav">
+        <a href="rendering.html">&larr; ImGui Rendering</a> |
+        <a href="fct.html">Next: Floating Combat Text &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

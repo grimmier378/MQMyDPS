@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commands — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html" class="active">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-06</em></p>
+    <h1>Commands</h1>
+    <p>All MQMyDPS commands are typed in your EverQuest chat window and begin with <code>/mydps</code>. Commands are not case-sensitive.</p>
+
+    <h2>Command Reference</h2>
+    <table>
+      <thead>
+        <tr><th>Command</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>/mydps</code></td><td>Toggle the main DPS Report window on or off</td></tr>
+        <tr><td><code>/mydps show</code></td><td>Show the main window</td></tr>
+        <tr><td><code>/mydps hide</code></td><td>Hide the main window</td></tr>
+        <tr><td><code>/mydps start</code></td><td>Start tracking damage and healing. If this is the first start of the session, the session timer begins.</td></tr>
+        <tr><td><code>/mydps stop</code></td><td>Pause tracking. Your data is preserved — you can resume with <code>/mydps start</code>.</td></tr>
+        <tr><td><code>/mydps reset</code></td><td>Clear all recorded data — battles, targets, healing, and statistics — and start fresh.</td></tr>
+        <tr><td><code>/mydps report</code></td><td>Print your current session statistics to the chat window. If MQMyChat is loaded, the report is sent to the MQMyDPS chat channel instead of your normal chat window.</td></tr>
+        <tr><td><code>/mydps config</code></td><td>Toggle the settings window</td></tr>
+        <tr><td><code>/mydps spam</code></td><td>Toggle the combat overlay (real-time damage feed). The combat overlay only displays while tracking is active.</td></tr>
+        <tr><td><code>/mydps lock</code></td><td>Toggle click-through mode on the combat overlay</td></tr>
+        <tr><td><code>/mydps fct</code></td><td>Toggle floating combat text (3D damage numbers)</td></tr>
+        <tr><td><code>/mydps peers</code></td><td>Show or hide the peer display (see <a href="group-sharing.html">Peers</a>)</td></tr>
+        <tr><td><code>/mydps filter all|server|group|raid</code></td><td>Choose which characters appear in the group views</td></tr>
+        <tr><td><code>/mydps debug</code></td><td>Toggle extra logging for peer discovery</td></tr>
+        <tr><td><code>/mydps peerdebug</code></td><td>Print the list of known peers and message counts to chat</td></tr>
+        <tr><td><code>/mydps patterns reload</code></td><td>Reload chat patterns from the JSON file. Use after editing patterns in-game or in the JSON file directly.</td></tr>
+        <tr><td><code>/mydps help</code></td><td>Display a list of available commands in chat</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Common Workflows</h2>
+
+    <h3>Starting a New Session</h3>
+    <p>If you want to track a fresh session from scratch:</p>
+    <pre><code>/mydps reset
+/mydps start</code></pre>
+
+    <h3>Getting a Quick Report</h3>
+    <p>To see your session stats printed in chat at any time:</p>
+    <pre><code>/mydps report</code></pre>
+    <p>The report includes your session DPS, total damage, hit count, duration, and per-target breakdowns.</p>
+
+    <h3>Setting Up for Combat</h3>
+    <p>A typical setup for an active combat session with all visual features:</p>
+    <pre><code>/mydps start
+/mydps spam
+/mydps fct</code></pre>
+
+    <h3>Minimal Mode</h3>
+    <p>If you only want the main window with no overlays:</p>
+    <pre><code>/mydps show
+/mydps start</code></pre>
+    <p>Make sure the combat overlay and FCT are toggled off if you enabled them previously.</p>
+
+    <div class="tip">You can add these commands to a macro or hotbutton for one-click setup at the start of each play session.</div>
+
+    <div class="page-nav">
+      &larr; <a href="settings.html">Settings</a> |
+      Next: <a href="patterns.html">Chat Patterns &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

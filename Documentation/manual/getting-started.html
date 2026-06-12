@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html" class="active">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-07</em></p>
+    <h1>Getting Started</h1>
+    <p>This page walks you through loading MQMyDPS for the first time and understanding the main interface.</p>
+
+    <h2>Loading the Plugin</h2>
+    <p>To load MQMyDPS, type the following in your EverQuest chat window:</p>
+    <pre><code>/plugin MQMyDPS</code></pre>
+    <p>The plugin loads automatically each session once added. To unload it, type <code>/plugin MQMyDPS unload</code>.</p>
+
+    <h2>The Main Window</h2>
+    <p>After loading, the DPS Report window appears. You can toggle it at any time with <code>/mydps</code> or <code>/mydps show</code> / <code>/mydps hide</code>.</p>
+
+    <h3>Menu Bar</h3>
+    <p>The top of the main window has a menu bar with these controls:</p>
+    <table>
+      <thead>
+        <tr><th>Button</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Start / Stop (toggle)</td><td>Displays "Start" when not tracking — click to begin. Displays "Stop" while tracking — click to pause without clearing data. Only one is shown at a time.</td></tr>
+        <tr><td>Reset (trash icon)</td><td>Clear all recorded data and start fresh</td></tr>
+        <tr><td>Config (gear icon)</td><td>Open the settings window</td></tr>
+      </tbody>
+    </table>
+    <p>The menu bar always displays your session DPS in gold text (it reads 0.0 before you start tracking). During active combat, a red <strong>[COMBAT]</strong> indicator also appears.</p>
+
+    <h3>Main Window Tabs</h3>
+    <p>The main window has six tabs, each showing different aspects of your combat data:</p>
+    <table>
+      <thead>
+        <tr><th>Tab</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Current Battle</td><td>Live stats for the fight in progress — DPS, hits, crits, targets, and healed players</td></tr>
+        <tr><td>History</td><td>A sortable table of all past battles with expandable per-target breakdowns</td></tr>
+        <tr><td>Targets</td><td>Damage dealt to each target in the current battle and across the session</td></tr>
+        <tr><td>Healing</td><td>Healing totals per player with a pie chart showing distribution</td></tr>
+        <tr><td>Graphs</td><td>DPS trends, damage breakdowns, bar charts, and pie charts</td></tr>
+        <tr><td>Peers</td><td>Live DPS, history, and graphs for all your boxed characters</td></tr>
+      </tbody>
+    </table>
+    <p>Each tab is covered in detail on the <a href="tracking-damage.html">Tracking Damage</a>, <a href="graphs.html">Graphs &amp; Charts</a>, and <a href="group-sharing.html">Peers</a> pages. Any tab can be <strong>popped out</strong> into its own window &mdash; select it, then right-click the tab bar and choose Pop Out.</p>
+
+    <h2>Auto-Start</h2>
+    <p>By default, tracking does not begin until you press play or type <code>/mydps start</code>. If you want tracking to begin automatically every time you log in, enable the <strong>Auto Start</strong> option in Settings.</p>
+
+    <div class="tip">With Auto Start enabled, you never need to remember to start tracking — it begins the moment your character enters the world.</div>
+
+    <h2>Chat Patterns</h2>
+    <p>The first time you load MQMyDPS on a server, a default set of chat patterns is generated automatically. These patterns tell the plugin how to recognize damage, healing, and miss messages from EverQuest's combat text. You can view and edit them in the <strong>Patterns</strong> tab of the settings window, See <a href="patterns.html">Chat Patterns</a> for details.</p>
+
+    <h2>Your Settings</h2>
+    <p>MQMyDPS saves a separate configuration file for each character on each server. This means your shadowknight and your cleric can have completely different color schemes, FCT settings, and display preferences. Settings are saved automatically when you zone, log out, or close the config window.</p>
+
+    <img src="../media/settings.png" alt="The MQMyDPS settings window showing display options" class="screenshot">
+    <p class="screenshot-caption">The settings window with display options, accessed via the gear icon or <code>/mydps config</code>.</p>
+
+    <div class="page-nav">
+      &larr; <a href="index.html">Welcome</a> |
+      Next: <a href="tracking-damage.html">Tracking Damage &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pattern Engine — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html" class="active">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-08</em></p>
+    <h1>Pattern Engine</h1>
+
+    <h2>The Problem</h2>
+    <p>EverQuest sends combat and healing events as formatted chat text. There is no structured damage API, no event system with typed fields, and no spawn IDs in messages. The pattern engine must convert raw text lines into <code>DamageRecord</code> structs with extracted target names, damage values, spell names, and damage types.</p>
+
+    <h2>Why Blech?</h2>
+    <p>The original parser used <code>string_view::find()</code> with 15 hardcoded <code>TryParse*</code> methods. While fast, it was rigid: every EQ message format change required a code change and recompile. The replacement uses MQ's Blech B-tree pattern matching library, which provides:</p>
+    <ul>
+        <li><strong>User-editable patterns:</strong> Patterns are stored in per-server JSON files and can be edited in-game via the Patterns tab or by editing the JSON directly</li>
+        <li><strong>Named captures:</strong> Blech's <code>#name#</code> syntax extracts substrings by name (e.g., <code>#target#</code>, <code>#damage#</code>, <code>#verb#</code>)</li>
+        <li><strong>Wildcard matching:</strong> <code>#*#</code> matches any text (used for crit/deadly strike patterns with variable prefix text)</li>
+        <li><strong>B-tree efficiency:</strong> Blech builds a prefix tree from all registered patterns, so adding more patterns has minimal performance cost</li>
+        <li><strong>Hot reload:</strong> <code>/mydps patterns reload</code> re-reads patterns from disk without restarting the plugin</li>
+    </ul>
+
+    <h2>Architecture Overview</h2>
+    <p><code>MyDPSPatternEngine</code> (<code>MyDPSPatternEngine.cpp/h</code>) owns a <code>Blech</code> instance, a vector of <code>PatternDef</code> structs, and a map of builder callbacks. Each pattern definition maps a Blech event ID to a typed builder function that populates a <code>DamageRecord</code>.</p>
+
+    <div class="diagram">
+<pre>
+JSON File (per-server)
+    |
+    v
+LoadPatterns()  -->  m_patterns[]  (PatternDef vector)
+    |
+RegisterEvents()
+    |
+    v
+Blech::AddEvent(pattern, callback)  -->  blechId stored in PatternDef
+    |                                     m_blechEventMap[blechId] = &def
+    v
+Feed(line)  -->  Blech::Feed()
+    |              |
+    |              v  (callback fires if pattern matches)
+    |           BlechCallback()
+    |              |
+    |              v
+    |           HandleMatch(id, values)
+    |              |  looks up PatternDef by blechId
+    |              |  looks up BuilderFn by key
+    |              v
+    |           Build*(rec, values)  -->  m_pendingRecord populated
+    |
+    v
+return m_pendingRecord as optional&lt;DamageRecord&gt;
+</pre>
+    </div>
+
+    <h2>Blech Pattern Syntax</h2>
+    <p>Blech uses <code>#</code> as the capture delimiter and <code>|</code> as the variable delimiter (neither is used in EQ chat text). Pattern syntax:</p>
+    <table>
+        <thead>
+            <tr><th>Syntax</th><th>Meaning</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>#name#</code></td><td>Named capture: matches any text and stores it as <code>name</code></td><td><code>#target#</code> captures the target name</td></tr>
+            <tr><td><code>#*#</code></td><td>Wildcard: matches any text, value discarded</td><td><code>#*#You score a critical hit!#*#</code></td></tr>
+            <tr><td>literal text</td><td>Must match exactly</td><td><code>You </code>, <code> for </code>, <code> points of damage.</code></td></tr>
+        </tbody>
+    </table>
+
+    <div class="warning">
+        <strong>Trailing literal requirement:</strong> Blech requires the last literal node in a pattern to consume all remaining input text for the callback to fire. If a chat line ends with "points of damage." then the pattern must also end with "points of damage." (including the period). Missing the trailing period will cause the pattern to silently fail to match.
+    </div>
+
+    <h2>Token Substitution</h2>
+    <p>Patterns in the JSON file can contain two substitution tokens that are replaced at registration time:</p>
+    <table>
+        <thead>
+            <tr><th>Token</th><th>Replaced With</th><th>Used In</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>{CharName}</code></td><td>Current character name (e.g., "Grimmier")</td><td>non_melee, deadly_strike patterns</td></tr>
+            <tr><td><code>{PetName}</code></td><td>Current pet's <code>DisplayedName</code></td><td>pet_melee, pet_non_melee patterns</td></tr>
+        </tbody>
+    </table>
+    <p>Substitution happens in <code>RegisterEvents()</code> and <code>RegisterPetEvents()</code> via <code>SubstituteToken()</code>. The raw pattern (with tokens) is preserved in <code>PatternDef::rawPattern</code>; the substituted version goes into <code>PatternDef::pattern</code> and is registered with Blech.</p>
+
+    <h2>Pattern Definitions</h2>
+    <p>17 patterns are defined by default (15 standard + 2 pet). Each has a unique key, a <code>DamageType</code>, and a Blech pattern string.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Key</th>
+                <th>Pattern</th>
+                <th>DamageType</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>1</td>
+                <td><code>melee</code></td>
+                <td><code>You #verb# #target# for #damage# points of damage.</code></td>
+                <td>Melee</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td><code>miss</code></td>
+                <td><code>You try to #verb# #target#, but miss!</code></td>
+                <td>Miss</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td><code>non_melee</code></td>
+                <td><code>{CharName} hit #target# for #damage# points of non-melee damage.</code></td>
+                <td>NonMelee</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td><code>crit</code></td>
+                <td><code>#*#You score a critical hit!#*#(#damage#)</code></td>
+                <td>Crit</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td><code>crit_blast</code></td>
+                <td><code>#*#You deliver a critical blast!#*#(#damage#)</code></td>
+                <td>Crit</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td><code>deadly_strike</code></td>
+                <td><code>#*#{CharName} scores a Deadly Strike!#*#(#damage#)</code></td>
+                <td>Crit</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td><code>dot</code></td>
+                <td><code>#target# has taken #damage# damage from your #spell#.</code></td>
+                <td>DoT</td>
+            </tr>
+            <tr>
+                <td>8</td>
+                <td><code>damage_shield</code></td>
+                <td><code>#target# was hit by non-melee for #damage# points of damage.</code></td>
+                <td>DamageShield</td>
+            </tr>
+            <tr>
+                <td>9</td>
+                <td><code>hit_by</code></td>
+                <td><code>#attacker# #verb# YOU for #damage# points of damage.</code></td>
+                <td>HitBy</td>
+            </tr>
+            <tr>
+                <td>10</td>
+                <td><code>missed_me</code></td>
+                <td><code>#attacker# tries to #verb# YOU, but misses!</code></td>
+                <td>MissedMe</td>
+            </tr>
+            <tr>
+                <td>11</td>
+                <td><code>crit_heal</code></td>
+                <td><code>#*#You perform an exceptional heal!#*#(#damage#)</code></td>
+                <td>CritHeal</td>
+            </tr>
+            <tr>
+                <td>12</td>
+                <td><code>direct_heal</code></td>
+                <td><code>You have healed #target# for #damage# hit points with your #spell#.</code></td>
+                <td>DirectHeal</td>
+            </tr>
+            <tr>
+                <td>13</td>
+                <td><code>direct_heal_simple</code></td>
+                <td><code>You have healed #target# for #damage# points.</code></td>
+                <td>DirectHeal</td>
+            </tr>
+            <tr>
+                <td>14</td>
+                <td><code>healed_by</code></td>
+                <td><code>#healer# healed you for #damage# hit points by #spell#.</code></td>
+                <td>DirectHeal</td>
+            </tr>
+            <tr>
+                <td>15</td>
+                <td><code>hit_by_non_melee</code></td>
+                <td><code>#attacker# hit YOU for #damage# points of non-melee damage.</code></td>
+                <td>HitByNonMelee</td>
+            </tr>
+            <tr>
+                <td>16</td>
+                <td><code>pet_melee</code></td>
+                <td><code>{PetName} #verb# #target# for #damage# points of damage.</code></td>
+                <td>PetMelee</td>
+            </tr>
+            <tr>
+                <td>17</td>
+                <td><code>pet_non_melee</code></td>
+                <td><code>{PetName} hit #target# for #damage# points of non-melee damage.</code></td>
+                <td>PetNonMelee</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Builder Callbacks</h2>
+    <p>Each pattern key maps to a builder function via <code>m_builders</code> (initialized in <code>InitBuilders()</code>). When Blech matches a pattern, <code>HandleMatch()</code> looks up the builder by key and calls it with a fresh <code>DamageRecord</code> and the linked list of captured values.</p>
+
+    <table>
+        <thead>
+            <tr><th>Key(s)</th><th>Builder</th><th>Extracts</th><th>Special Behavior</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>melee</code></td><td><code>BuildMelee</code></td><td>verb, target, damage</td><td>Rejects verb "have" to avoid heal collision</td></tr>
+            <tr><td><code>miss</code></td><td><code>BuildMiss</code></td><td>verb, target</td><td>Sets <code>isMiss=true</code>, damage=0</td></tr>
+            <tr><td><code>non_melee</code></td><td><code>BuildNonMelee</code></td><td>target, damage</td><td>Verb fixed to "non-melee"</td></tr>
+            <tr><td><code>crit</code>, <code>crit_blast</code></td><td><code>BuildCrit</code></td><td>damage</td><td>No target (filled later by RecordDamage from pTarget)</td></tr>
+            <tr><td><code>deadly_strike</code></td><td><code>BuildDeadlyStrike</code></td><td>damage</td><td>Verb fixed to "deadly"</td></tr>
+            <tr><td><code>dot</code></td><td><code>BuildDoT</code></td><td>target, damage, spell</td><td>Strips trailing period from spell name</td></tr>
+            <tr><td><code>damage_shield</code></td><td><code>BuildDamageShield</code></td><td>target, damage</td><td>Verb fixed to "dShield"</td></tr>
+            <tr><td><code>hit_by</code></td><td><code>BuildHitBy</code></td><td>attacker, verb, damage</td><td>Target = attacker name</td></tr>
+            <tr><td><code>missed_me</code></td><td><code>BuildMissedMe</code></td><td>attacker, verb</td><td>Sets <code>isMiss=true</code>, damage=0</td></tr>
+            <tr><td><code>crit_heal</code></td><td><code>BuildCritHeal</code></td><td>damage</td><td>Verb fixed to "critHeal"</td></tr>
+            <tr><td><code>direct_heal</code>, <code>direct_heal_simple</code></td><td><code>BuildDirectHeal</code></td><td>target, damage, spell</td><td>Strips trailing period from spell name</td></tr>
+            <tr><td><code>healed_by</code></td><td><code>BuildHealedBy</code></td><td>healer, damage, spell</td><td>Target = charName. Rejects damage &lt;= 0</td></tr>
+            <tr><td><code>hit_by_non_melee</code></td><td><code>BuildHitByNonMelee</code></td><td>attacker, damage</td><td>Target = attacker name</td></tr>
+            <tr><td><code>pet_melee</code></td><td><code>BuildPetMelee</code></td><td>verb, target, damage</td><td>Verb = petName + " " + verb</td></tr>
+            <tr><td><code>pet_non_melee</code></td><td><code>BuildPetNonMelee</code></td><td>target, damage</td><td>Verb = petName + " non-melee"</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Value Extraction</h2>
+    <p><code>GetBlechValue()</code> walks the <code>PBLECHVALUE</code> linked list to find a named capture by string comparison. <code>GetBlechInt()</code> wraps this with <code>std::from_chars</code> for numeric conversion (returns 0 on failure).</p>
+
+    <h2>JSON Format</h2>
+    <p>Patterns are stored at <code>[MQ Config Dir]/MQMyDPS/[ServerName]/Patterns.json</code>. The file uses nlohmann/json (v3.12.0, header-only <code>json.hpp</code>).</p>
+
+    <pre><code>{
+    "version": 2,
+    "patterns": {
+        "melee": {
+            "type": "Melee",
+            "pattern": "You #verb# #target# for #damage# points of damage.",
+            "enabled": true
+        },
+        "non_melee": {
+            "type": "NonMelee",
+            "pattern": "{CharName} hit #target# for #damage# points of non-melee damage.",
+            "enabled": true
+        }
+    },
+    "pet_patterns": {
+        "pet_melee": {
+            "type": "PetMelee",
+            "pattern": "{PetName} #verb# #target# for #damage# points of damage.",
+            "enabled": true
+        }
+    }
+}</code></pre>
+
+    <h3>Version Migration</h3>
+    <p>The file includes a <code>"version"</code> field (currently <code>PATTERNS_VERSION = 2</code>). When <code>LoadPatterns()</code> reads a file with a version lower than the current constant, it regenerates defaults and overwrites the file. This auto-upgrades patterns when the plugin ships new default patterns (e.g., the v1-to-v2 migration fixed patterns that were missing trailing periods).</p>
+
+    <h2>Dynamic Pet Registration</h2>
+    <p>Pet patterns use the <code>{PetName}</code> token, which changes whenever the player summons, loses, or changes pets. The engine handles this dynamically:</p>
+    <ol>
+        <li><code>ProcessChat()</code> checks the player's pet on every call</li>
+        <li>If the pet name changes, it calls <code>UnregisterPetEvents()</code> followed by <code>RegisterPetEvents(newName)</code></li>
+        <li><code>RegisterPetEvents()</code> substitutes <code>{PetName}</code> in each pet pattern and registers new Blech events</li>
+        <li>If the pet is dismissed or dies, <code>UnregisterPetEvents()</code> removes the Blech events and clears <code>m_petName</code></li>
+    </ol>
+
+    <h2>First-match-wins</h2>
+    <p><code>HandleMatch()</code> sets <code>m_matched = true</code> on the first callback. Blech may fire multiple callbacks for a single <code>Feed()</code> call if multiple patterns match the same line, but only the first match produces a record. This mirrors the sequential try-and-return behavior of the old parser.</p>
+
+    <h2>Filtering in ProcessChat</h2>
+    <p>After the pattern engine returns a <code>DamageRecord</code>, <code>ProcessChat()</code> applies settings-based filters before passing to <code>RecordDamage</code>:</p>
+    <table>
+        <thead>
+            <tr><th>Setting</th><th>Filters DamageType</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>showMyMisses</code></td><td><code>Miss</code> (only when <code>isMiss</code> is true)</td></tr>
+            <tr><td><code>showMissMe</code></td><td><code>MissedMe</code></td></tr>
+            <tr><td><code>showHitMe</code></td><td><code>HitBy</code>, <code>HitByNonMelee</code></td></tr>
+            <tr><td><code>showCritHeals</code></td><td><code>CritHeal</code></td></tr>
+            <tr><td><code>showDS</code></td><td><code>DamageShield</code></td></tr>
+        </tbody>
+    </table>
+    <p><code>DirectHeal</code> is never filtered &mdash; heals are always recorded when tracking is active.</p>
+
+    <div class="tip">
+        <strong>Tip:</strong> Keeping filters in the engine rather than the pattern engine means the pattern engine is a pure text-to-structure converter with no dependencies on settings or game state. The pattern engine could be reused in test harnesses or log file readers without any MQ dependencies beyond <code>DamageRecord</code> and <code>Blech</code>.
+    </div>
+
+    <h2>In-Game Editing</h2>
+    <p>The Config window's Patterns tab exposes all patterns as <code>myui::StyledEditField</code> cells &mdash; a readonly display of the current pattern that, when clicked, opens a cursor-anchored Accept/Cancel popup to edit the raw text (applied only on accept). Users can enable/disable individual patterns, edit the pattern text, save changes to disk, or reload from disk. Changes to raw patterns take effect after Save + Reload (the Blech events must be re-registered with updated text).</p>
+
+    <div class="page-nav">
+        <a href="lifecycle.html">&larr; Plugin Lifecycle</a>
+        <span> | </span>
+        <a href="spawn-tracking.html">Next: Spawn ID Tracking &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

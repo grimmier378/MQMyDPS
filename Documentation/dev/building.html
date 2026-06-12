@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Building — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html" class="active">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-08</em></p>
+    <h1>Building</h1>
+
+    <h3>Prerequisites</h3>
+    <ul>
+        <li>MacroQuest source tree (provides MQ2Main, eqlib, ImGui, ImPlot, fmt, Blech, and the protobuf + abseil libraries)</li>
+        <li>Visual Studio with the C++ toolset and MSBuild (this dev machine uses VS 2026 Insiders / v18; any recent VS that builds the MQ solution works)</li>
+        <li>Win32 (x86) platform — EverQuest is a 32-bit process</li>
+    </ul>
+
+    <h3>Setup</h3>
+    <ol>
+        <li>Clone or place the MQMyDPS folder under <code>plugins/</code> in your MacroQuest source tree</li>
+        <li>Add <code>MQMyDPS.vcxproj</code> to the MacroQuest Visual Studio solution</li>
+        <li>Ensure the Win32 (x86) platform configuration is selected</li>
+    </ol>
+
+    <h3>Build Command</h3>
+    <pre><code>"C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe" D:\gitStuff\macroquest\plugins\MQMyDPS\MQMyDPS.vcxproj -p:Configuration=Release -p:Platform=Win32 -nologo -verbosity:minimal</code></pre>
+    <p class="note">The MSBuild path is install-specific. If it differs on your machine, locate it with
+    <code>vswhere</code> or search under <code>C:\Program Files\Microsoft Visual Studio\</code>.</p>
+
+    <h3>Output</h3>
+    <p>Builds as a DLL. Place in the MQ plugins directory. Load with:</p>
+    <pre><code>/plugin MQMyDPS</code></pre>
+
+    <h3>Dependencies</h3>
+    <table>
+        <thead>
+            <tr><th>Dependency</th><th>Source</th><th>Required?</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>MQ2Main</td><td>MacroQuest core</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>eqlib</td><td>MacroQuest core</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>ImGui</td><td>Bundled with MQ</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>ImPlot</td><td>Bundled with MQ</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>fmt</td><td>Bundled with MQ</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>Blech</td><td>Bundled with MQ</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>protobuf + abseil</td><td>MacroQuest build system (<code>libprotobuf.lib</code> / <code>libprotobufd.lib</code> + abseil libs)</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>postoffice (<code>mq::postoffice</code>)</td><td>MacroQuest core</td><td>Yes (build + runtime)</td></tr>
+            <tr><td>nlohmann/json</td><td>Vendored (json.hpp)</td><td>Yes (build only)</td></tr>
+            <tr><td>MyChatAPI.h</td><td>Vendored header (refreshed via <code>Update-MyChatAPI.ps1</code>)</td><td>Yes (build only, header)</td></tr>
+            <tr><td>MQMyChat</td><td>Separate plugin</td><td>No (runtime only, optional)</td></tr>
+        </tbody>
+    </table>
+
+    <div class="note">The cross-character sharing layer links <strong>protobuf</strong> (and its abseil dependencies) — these come from the MacroQuest build system, which builds protobuf/abseil as part of the solution, so no separate vcpkg setup is needed. <code>json.hpp</code> (nlohmann/json) and <code>MyChatAPI.h</code> are vendored directly in the plugin folder. MQMyChat itself is optional at runtime and is not a link dependency.</div>
+
+    <h3>Source Files</h3>
+    <table>
+        <thead>
+            <tr><th>File</th><th>Type</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>MQMyDPS.cpp</code></td><td>Implementation</td><td>Plugin entry, engine (~1432 lines)</td></tr>
+            <tr><td><code>MQMyDPS.h</code></td><td>Header</td><td>Engine class declaration (~112 lines)</td></tr>
+            <tr><td><code>MyDPSData.h</code></td><td>Header</td><td>Data structures, enums (301 lines)</td></tr>
+            <tr><td><code>MyDPSPatternEngine.cpp</code></td><td>Implementation</td><td>Blech pattern matching, JSON I/O (~605 lines)</td></tr>
+            <tr><td><code>MyDPSPatternEngine.h</code></td><td>Header</td><td>Pattern engine declaration (88 lines)</td></tr>
+            <tr><td><code>json.hpp</code></td><td>Header-only</td><td>nlohmann/json v3.12.0</td></tr>
+            <tr><td><code>MyDPSActors.cpp</code></td><td>Implementation</td><td>Cross-character peer sharing (~570 lines)</td></tr>
+            <tr><td><code>MyDPSActors.h</code></td><td>Header</td><td>Actors / PeerRecord declarations (118 lines)</td></tr>
+            <tr><td><code>MyChatAPI.h</code></td><td>Header (vendored)</td><td>MQMyChat <code>ChatAPI</code> interface (refresh with <code>Update-MyChatAPI.ps1</code>)</td></tr>
+            <tr><td><code>Proto/mydps.proto</code></td><td>Protobuf schema</td><td>Peer message definitions (58 lines)</td></tr>
+            <tr><td><code>Proto/mydps.pb.cc</code> / <code>.pb.h</code></td><td>Generated</td><td>protoc output compiled into the plugin</td></tr>
+            <tr><td><code>MyDPSRenderer.cpp</code></td><td>Implementation</td><td>ImGui rendering (~2052 lines)</td></tr>
+            <tr><td><code>MyDPSRenderer.h</code></td><td>Header</td><td>Renderer declaration (94 lines)</td></tr>
+            <tr><td><code>MyDPSFloatingText.h</code></td><td>Header-only</td><td>FCT system (~442 lines)</td></tr>
+            <tr><td><code>MyDPSTLO.cpp</code></td><td>Implementation</td><td>TLO implementation (254 lines)</td></tr>
+            <tr><td><code>MyDPSTLO.h</code></td><td>Header</td><td>TLO declarations (58 lines)</td></tr>
+            <tr><td><code>Theme.h</code></td><td>Header-only</td><td>11 ImGui themes (~868 lines)</td></tr>
+            <tr><td><code>MQMyDPS.rc</code> / <code>resource.h</code></td><td>Resource</td><td>Version info resource</td></tr>
+        </tbody>
+    </table>
+
+    <div class="note">The <code>Proto/mydps.pb.cc</code> / <code>.pb.h</code> files are generated from <code>mydps.proto</code> by the protobuf compiler as part of the build (and are also committed). If you change the schema, let the build regenerate them rather than editing by hand. See <a href="actors.html">Cross-Character Sharing</a>.</div>
+
+    <h3>Cross-Client / 64-bit (EMU vs LIVE)</h3>
+    <p>The default build targets the <strong>EMU</strong> client (32-bit, Win32) — that is the client the author plays. The same source also builds for the <strong>LIVE</strong> client (64-bit, x64); the <code>.vcxproj</code> already carries both Win32 and x64 configurations.</p>
+    <p>Build identity comes from <code>eqlib/BuildType.h</code>, which is selected by the eqlib branch you build against:</p>
+    <table>
+        <thead>
+            <tr><th>Macro</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>IS_EMU_CLIENT</code> / <code>IS_LIVE_CLIENT</code> / <code>IS_TEST_CLIENT</code></td><td>Which client family this build targets</td></tr>
+            <tr><td><code>IS_EXPANSION_LEVEL(x)</code> / <code>IS_CLIENT_DATE(x)</code></td><td>Feature gating by expansion / client date</td></tr>
+            <tr><td><code>HAS_DIRECTX_11</code> / <code>HAS_DIRECTX_9</code></td><td>Renderer backend (EMU/RoF2 is DX9; recent LIVE is DX11)</td></tr>
+        </tbody>
+    </table>
+    <p><code>BuildType.h</code> enforces the platform: Win32 is required for EMU, x64 for LIVE. To produce a LIVE build, point the eqlib submodule at the <code>live</code> branch and build the <strong>x64</strong> configuration against your live MacroQuest tree.</p>
+    <div class="note">A cross-client audit found the plugin's eqlib surface is almost entirely common between the <code>emu-rof2</code> and <code>live</code> branches — spawn fields (<code>PetID</code>, <code>MasterID</code>, <code>WhoFollowing</code>, <code>AvatarHeight</code>, <code>Type</code>), casting/spell data (<code>LaunchSpellData</code>, <code>EQ_Spell::SpellIcon</code>, <code>IsDoTSpell()</code>), combat state, and the graphics/camera/bone/render interfaces all match. Two points were addressed for LIVE:</div>
+    <ul>
+        <li><strong>Bone accessors</strong> take <code>EBones</code> on EMU but <code>int</code> on LIVE (<code>GetBoneByIndex</code> / <code>GetBoneWorldPosition</code>). <code>MyDPSFloatingText.h</code> selects the parameter type with <code>#if IS_EMU_CLIENT</code>.</li>
+        <li><strong>FCT world-to-screen projection</strong> uses the hand-rolled <code>worldToEye</code> matrix math (reading <code>CCamera</code> fields by name). This is cross-client because the <code>CCamera</code> field names are identical on EMU and LIVE (only the offsets differ), and it is the same approach the community MQNameplates plugin uses. The built-in <code>CCameraInterface::ProjectWorldCoordinatesToScreen()</code> was tried but produced no usable screen coordinates (FCT stopped rendering), so it was reverted.</li>
+    </ul>
+    <p>For any future client-specific divergence, gate it on the <code>BuildType.h</code> macros (<code>IS_EMU_CLIENT</code> / <code>IS_LIVE_CLIENT</code> or the <code>HAS_*</code> feature flags) rather than on raw <code>_M_X64</code> checks.</p>
+
+    <h3>Testing</h3>
+    <div class="warning">No automated test suite. All testing is manual in-game. Load the plugin, engage mobs, verify damage tracking, healing tracking, FCT positioning, graph rendering, and MQMyChat output.</div>
+
+    <h3>Troubleshooting</h3>
+    <ul>
+        <li>If the plugin fails to load, check that it was built for Win32 (x86), not x64</li>
+        <li>If FCT doesn't appear, verify <code>showFCT</code> is enabled in settings and that you have a valid target</li>
+        <li>If MQMyChat integration doesn't work, verify MQMyChat is loaded first: <code>/plugin MQMyChat</code></li>
+    </ul>
+
+    <div class="page-nav">
+        <a href="mychat-integration.html">&larr; MQMyChat Integration</a>
+    </div>
+</main>
+</body>
+</html>

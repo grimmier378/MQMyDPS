@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQMyChat Integration — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html" class="active">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-06</em></p>
+    <h1>MQMyChat Integration</h1>
+
+    <h3>Overview</h3>
+    <p>MQMyDPS can send formatted battle reports to MQMyChat's "MyDPS" channel. Entirely optional — if MQMyChat is not loaded, <code>SendToMyChat()</code> does nothing.</p>
+
+    <h3>How It Works</h3>
+    <p>Integration uses MQMyChat's exported <strong>C++ plugin interface</strong>, declared in the vendored header <code>MyChatAPI.h</code>. The accessor <code>mqmychat::GetChatAPI()</code> wraps <code>mq::GetPluginInterface("MQMyChat")</code> and returns <code>nullptr</code> when MQMyChat isn't loaded. (There is no longer any <code>ParseMacroData()</code> / <code>${MyChat.Send[...]}</code> TLO-expression path — that approach was replaced by the direct interface call.)</p>
+    <p><code>LoadCharacterSettings()</code> records <code>IsPluginLoaded("MQMyChat")</code> into <code>m_myChatLoaded</code> for reference, but the live helpers always re-query the interface rather than trusting that cached flag.</p>
+    <p><code>SendToMyChat(message)</code> (<code>MQMyDPS.cpp:1392</code>) fetches the interface and, when present, calls <code>chat-&gt;Send("MyDPS", message)</code>. <code>Output(message)</code> (<code>MQMyDPS.cpp:1398</code>) routes the same way: to the MyDPS channel when MQMyChat is loaded, otherwise to the normal MQ chat window via <code>WriteChatf</code> — exclusive, never both.</p>
+
+    <div class="note">MQMyChat is <strong>not</strong> a link-time dependency. Only the lightweight <code>MyChatAPI.h</code> interface header is vendored into the plugin; at runtime the interface is resolved by name via <code>GetPluginInterface("MQMyChat")</code>. The header is refreshed from upstream with <code>Update-MyChatAPI.ps1</code>.</div>
+
+    <h3>What Gets Sent</h3>
+
+    <p><strong>/mydps report</strong> — single session summary line:</p>
+    <pre><code>[MQMyDPS] Session DPS: 1234.5 | Total: 45.6k | Hits: 312</code></pre>
+    <p>Color codes: <code>\at</code> (teal) prefix, <code>\ay</code> (yellow) DPS, <code>\ag</code> (green) total, <code>\aw</code> (white) hits.</p>
+
+    <p><strong>FinalizeBattle()</strong> — multi-line battle summary when damage &gt; 0:</p>
+
+    <p>Line 1 — battle header:</p>
+    <pre><code>[MQMyDPS] Battle #3 ended: DPS 1234.5 | Dmg 45.6k | Hits 312 | Dur 37s</code></pre>
+
+    <p>Per damage target:</p>
+    <pre><code>  a goblin (#12345) - DPS 980.0 | Dmg 36.2k | Hits 245</code></pre>
+    <p>Target names <code>\ar</code> (red), spawn IDs <code>\ap</code> (purple).</p>
+
+    <p>Per heal target (if heals occurred):</p>
+    <pre><code>  Healed Grimmier - 8.4k (12 heals)</code></pre>
+    <p>Label <code>\ao</code> (orange), player <code>\at</code> (teal), amount <code>\ag</code> (green).</p>
+
+    <h3>MQ Color Codes Used</h3>
+    <table>
+        <thead>
+            <tr><th>Code</th><th>Color</th><th>Used For</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>\at</code></td><td>Teal</td><td>Prefix [MQMyDPS], player names</td></tr>
+            <tr><td><code>\ay</code></td><td>Yellow</td><td>DPS values</td></tr>
+            <tr><td><code>\ag</code></td><td>Green</td><td>Total damage/heal amounts</td></tr>
+            <tr><td><code>\aw</code></td><td>White</td><td>Hit counts, default text</td></tr>
+            <tr><td><code>\ar</code></td><td>Red</td><td>Target names</td></tr>
+            <tr><td><code>\ap</code></td><td>Purple</td><td>Spawn ID numbers</td></tr>
+            <tr><td><code>\ao</code></td><td>Orange</td><td>"Healed" label</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Key Functions</h3>
+    <table>
+        <thead>
+            <tr><th>Function</th><th>Location</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>IsMyChatLoaded()</code></td><td><code>MQMyDPS.cpp:1387</code></td><td>Live check: returns <code>mqmychat::GetChatAPI() != nullptr</code></td></tr>
+            <tr><td><code>SendToMyChat(msg)</code></td><td><code>MQMyDPS.cpp:1392</code></td><td>Posts to the MyDPS channel via <code>chat-&gt;Send()</code> when MQMyChat is loaded</td></tr>
+            <tr><td><code>Output(msg)</code></td><td><code>MQMyDPS.cpp:1398</code></td><td>Routes to the MyDPS channel if loaded, else <code>WriteChatf</code> to normal chat</td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-nav">
+        <a href="commands-tlo.html">&larr; Commands &amp; TLO</a> |
+        <a href="building.html">Next: Building &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Peers — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html" class="active">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-07</em></p>
+    <h1>Peers</h1>
+    <p>If you play more than one character at once (boxing), MQMyDPS can show everyone's damage and healing together. Each character broadcasts its own numbers, and every other character running MQMyDPS picks them up &mdash; so you can watch the whole team's DPS from any window.</p>
+
+    <div class="tip">There is nothing to set up. Characters exchange small local messages between MacroQuest instances — no traffic touches the EverQuest game servers. As long as each character has MQMyDPS loaded, they find each other automatically. Other people's characters are referred to as <strong>peers</strong>.</div>
+
+    <h2>What You Need</h2>
+    <ul>
+      <li>Two or more characters running at the same time under MacroQuest.</li>
+      <li>MQMyDPS loaded on each character (<code>/plugin MQMyDPS</code>).</li>
+    </ul>
+    <p>That's it. Peers appear on their own within a second or two of loading the plugin — no damage needs to be dealt first. If a character logs out or stops sending data, it drops off the list automatically after about a minute.</p>
+
+    <h2>The Peers Tab</h2>
+    <p>The main DPS Report window has a <strong>Peers</strong> tab dedicated to your team. It has three sub-views:</p>
+    <ul>
+      <li><strong>Live</strong> &mdash; A row per character showing Player, Class, current DPS, total damage, hits, crits, DoTs, pet, non-melee, heals, and whether they are in combat. Sorted by DPS so the top performer is always on top.</li>
+      <li><strong>History</strong> &mdash; Completed fights grouped into shared encounters, with each character's DPS, total damage, duration, and heals side by side. Fights that happen close together are grouped as one encounter so you can compare the whole team on the same pull.</li>
+      <li><strong>Graphs</strong> &mdash; A pie chart of session-average DPS by character (you are labelled "(you)") and a bar chart comparing everyone's DPS across recent encounters, with each character in their own color.</li>
+    </ul>
+
+    <h2>The Live Meter</h2>
+    <p>You don't have to leave the <strong>Current Battle</strong> tab to keep an eye on the group. A collapsible <strong>group live meter</strong> sits at the top of that tab, listing each character's live DPS and totals. The base columns (Player, DPS, Total) are always visible. As you widen the window it first adds Hits, Heals, and Status, then at a wider size also adds Crit, DoT, and Pet.</p>
+
+    <h2>Choosing Who to Show</h2>
+    <p>At the top of the Peers tab are four filter buttons. They also control the live meter on the Current Battle tab.</p>
+    <table>
+      <thead>
+        <tr><th>Filter</th><th>Who You See</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>All</strong></td><td>Every character MQMyDPS can hear from</td></tr>
+        <tr><td><strong>Server</strong></td><td>Only characters on your current server</td></tr>
+        <tr><td><strong>Group</strong></td><td>Only members of your in-game group (same server)</td></tr>
+        <tr><td><strong>Raid</strong></td><td>Only members of your raid (same server)</td></tr>
+      </tbody>
+    </table>
+    <p>You are always shown in the list regardless of the filter. You can also change the filter from chat:</p>
+    <pre><code>/mydps filter all
+/mydps filter server
+/mydps filter group
+/mydps filter raid</code></pre>
+
+    <h2>Showing &amp; Hiding Peers</h2>
+    <p>Use <code>/mydps peers</code> to toggle the peer/group display on or off. Turn it off if you just want to focus on your own numbers.</p>
+
+    <div class="tip">Want the team view always visible? Select the <strong>Peers</strong> tab, then right-click the tab bar and choose <strong>Pop Out</strong> to give it its own window you can place anywhere on screen. Any tab can be popped out this way.</div>
+
+    <h2>Troubleshooting</h2>
+    <ul>
+      <li><strong>A character isn't showing up.</strong> Make sure MQMyDPS is loaded on that character and that they've dealt damage recently. Check your filter isn't hiding them (try <strong>All</strong>).</li>
+      <li><strong>Check what's being received.</strong> Type <code>/mydps peerdebug</code> to print the list of known peers and message counts to your chat window.</li>
+      <li><strong>See more detail.</strong> Type <code>/mydps debug</code> to toggle extra logging when peers are discovered.</li>
+    </ul>
+
+    <div class="page-nav">
+      &larr; <a href="graphs.html">Graphs &amp; Charts</a> |
+      Next: <a href="settings.html">Settings &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

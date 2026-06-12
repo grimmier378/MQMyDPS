@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImGui Rendering — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html" class="active">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-08</em></p>
+    <h1>ImGui Rendering</h1>
+
+    <h2>Window Inventory</h2>
+    <p>All rendering lives in <code>MyDPSRenderer.cpp</code> / <code>MyDPSRenderer.h</code>. The renderer exposes seven public entry points &mdash; <code>RenderMainWindow</code>, <code>RenderPopOutWindows</code>, <code>RenderConfigWindow</code>, <code>RenderCombatSpam</code>, <code>RenderFloatingText</code>, <code>RenderIconPicker</code>, and <code>RenderConfig</code> &mdash; all driven from <code>OnUpdateImGui</code>.</p>
+
+    <div class="note">
+        <strong>Styled widgets:</strong> the UI chrome (tabs, checkboxes, sliders, combos, the peer-meter
+        header) uses the shared imanim-driven set in <code>Widgets.{h,cpp}</code> (<code>namespace myui</code>),
+        copied from MQMyUI. <code>OnUpdateImGui</code> owns the <code>iam_context</code>. ImPlot graphs, the
+        FCT renderer, and the in-table History tree expanders stay stock ImGui. See the dedicated
+        <a href="widgets.html">Styled Widgets</a> page for the wiring, the catalog, and how to convert a call site.
+    </div>
+
+    <table>
+        <tr><th>Window</th><th>ImGui Name</th><th>Default Size</th><th>Toggle</th><th>Condition</th></tr>
+        <tr><td>DPS Report (Main)</td><td><code>"DPS Report##charName"</code></td><td>500x400</td><td><code>engine.showMainWindow</code></td><td>GAMESTATE_INGAME</td></tr>
+        <tr><td>DPS Config</td><td><code>"DPS Config##charName"</code></td><td>350x350</td><td><code>engine.showConfigWindow</code></td><td>GAMESTATE_INGAME</td></tr>
+        <tr><td>Combat Output</td><td><code>"Combat Output##charName"</code></td><td>350x200</td><td><code>engine.showCombatSpam &amp;&amp; tracking</code></td><td>GAMESTATE_INGAME</td></tr>
+        <tr><td>Pop-out tab(s)</td><td><code>"MyDPS - {Tab}##MQMyDPS_PopOut_{t}_{charName}"</code></td><td>520x360</td><td><code>m_tabPopOut[t]</code></td><td>Per detached tab</td></tr>
+        <tr><td>Icon Picker</td><td>icon-selection dialog</td><td>&mdash;</td><td><code>m_iconPickerOpen</code></td><td>Opened from FCT config</td></tr>
+    </table>
+    <p>The FCT overlay (background draw list, not a window) is covered on its own page.</p>
+
+    <p>Font scaling: <code>PushFont(nullptr, FontSizeBase * fontScale)</code>. Passing <code>nullptr</code> uses the current default font at the scaled size.</p>
+
+    <h2>Main Window &mdash; Menu Bar</h2>
+    <p>Uses <code>ImGui::MenuItem()</code> (not Button). The menu bar contains:</p>
+    <ul>
+        <li><strong>Stop/Start toggle</strong> &mdash; Material Design icons (<code>ICON_MD_STOP</code> / <code>ICON_MD_PLAY_ARROW</code>)</li>
+        <li><strong>Reset</strong> &mdash; <code>ICON_MD_DELETE</code>, calls <code>engine.ResetAll()</code></li>
+        <li><strong>Config toggle</strong> &mdash; <code>ICON_MD_SETTINGS</code></li>
+        <li><strong>Separator</strong></li>
+        <li><strong>Live session DPS</strong> &mdash; colored using the <code>"dps"</code> color key</li>
+        <li><strong>Red [COMBAT] label</strong> &mdash; shown when <code>engine.inCombat</code> is true</li>
+    </ul>
+
+    <h2>Main Window &mdash; 6 Tabs</h2>
+    <p>The tab strip is a <code>myui::PillTabBar</code> built in <code>RenderMainWindow</code> (<code>MyDPSRenderer.cpp:114</code>). It is fed only the <em>visible</em> (non-popped-out) tabs; the member <code>m_mainTab</code> stores the selected <strong>real tab id</strong> and the returned index is mapped back through the visible-tab list. The selected tab's body is rendered below the strip via <code>RenderTabBody(engine, m_mainTab)</code>. Tabs are <code>TAB_CURRENT</code>, <code>TAB_HISTORY</code>, <code>TAB_TARGETS</code>, <code>TAB_HEALING</code>, <code>TAB_GRAPHS</code>, <code>TAB_GROUP</code>. Right-clicking the strip opens a <strong>Pop Out</strong> menu for the active tab (see below).</p>
+
+    <h3>Tab 1: Current Battle</h3>
+    <p><code>RenderCurrentBattle</code> (<code>MyDPSRenderer.cpp:318</code>)</p>
+    <p>Stats table with color-coded values: DPS, Duration, Total, Avg, Hits, Crits, DoTs, Pet, Non-Melee, Heals, Crit Heals. A local lambda <code>C(key)</code> fetches from <code>damageColors</code>. Column count scales dynamically with window width.</p>
+    <p>Below the stats table: a target sub-table (colored with <code>"dmg-target"</code>) showing Name, DPS, Hits, Total per target, and a heal sub-table (colored with <code>"heal-target"</code>) showing Player, Heals, Total per healed player.</p>
+    <p>A collapsible <strong>peer live-meter</strong> (<code>RenderPeerLiveMeter</code>, <code>MyDPSRenderer.cpp:1097</code>) sits at the top of this tab, wrapped in a <code>myui::BeginAnimatedHeader</code>: an adaptive table (base Player/DPS/Total, expanding to Crit/DoT/Pet/Hits/Heals/Status as width allows) showing the group's live numbers. It respects <code>settings.peerFilterMode</code>.</p>
+
+    <h3>Tab 2: History</h3>
+    <p><code>RenderHistory</code> (<code>MyDPSRenderer.cpp:434</code>)</p>
+    <p>13-column table with <code>ImGuiTableFlags_Hideable | ImGuiTableFlags_Reorderable</code>. The <code>Battle#</code> column has <code>NoHide</code>.</p>
+    <p>Columns: Battle#, DPS, Duration, Avg, Melee (computed: totalDamage minus DD/DoT/Pet/DS), Crits, DoTs, Pet, Non-Melee, Heals, Crit Heals, Total Damage, Total Heals.</p>
+    <p>Rows sorted by <code>sortNewest</code> (iterates forward or reverse through <code>battleHistory</code>). Each row is a stock <code>ImGui::TreeNode</code> (intentionally <em>not</em> converted to the animated tree node, whose clipped child would fight the surrounding table layout); expansion shows per-target sub-rows and per-heal-target sub-rows. The <code>Clr</code> lambda is hoisted before the loop so both battle-level and sub-rows share the same color lookup.</p>
+
+    <h3>Tab 3: Targets</h3>
+    <p><code>RenderTargets</code> (<code>MyDPSRenderer.cpp:574</code>)</p>
+    <p>Two sections: current battle targets (5-column table: Name, DPS, Hits, Avg, Total) if a battle is active, followed by all session targets from <code>sortedSessionTargets</code> (4-column table: Name, Hits, Avg, Total).</p>
+
+    <h3>Tab 4: Healing</h3>
+    <p><code>RenderHealing</code> (<code>MyDPSRenderer.cpp:948</code>)</p>
+    <p>5-column table from <code>sortedSessionHeals</code> with columns: Player (NoHide), Direct Heals, Crit Heals, Count, Total. Features <code>Hideable | Reorderable</code> flags. Pie chart rendered below using ImPlot.</p>
+
+    <h3>Tab 5: Graphs</h3>
+    <p><code>RenderGraphs</code> (<code>MyDPSRenderer.cpp:646</code>)</p>
+    <p>Bordered child with 8px padding. 4 <code>myui::StyledCheckbox</code> toggles select chart types (all can show simultaneously):</p>
+    <ul>
+        <li><strong>DPS Line</strong> &mdash; Single DPS line per battle with scrollbar navigation</li>
+        <li><strong>Damage Breakdown</strong> &mdash; 3 Y-axes: Damage (Melee/DD/DoT/Pet on Y1), Crits (Y2), Heals/CritHeals (Y3)</li>
+        <li><strong>Bar Chart</strong> &mdash; 7 grouped bars (Melee, DD, DoT, Pet, Crit, Heals, Crit Heals), <code>groupWidth=0.8</code></li>
+        <li><strong>Pie Chart</strong> &mdash; Damage distribution by target from <code>sortedSessionTargets</code></li>
+    </ul>
+
+    <p>Data is cached in vectors and rebuilt when battle count changes. Each graph type has its own scroll state with auto-scroll support and a <code>myui::StyledSliderInt</code> scrollbar.</p>
+
+    <h3>Tab 6: Peers</h3>
+    <p><code>RenderGroup</code> (<code>MyDPSRenderer.cpp:1180</code>) &mdash; the cross-character view. It reads <code>engine.actors.VisiblePeers(static_cast&lt;PeerFilterMode&gt;(engine.settings.peerFilterMode))</code> and presents three sub-tabs via a <code>myui::PillTabBar</code> (<code>m_groupSubTab</code>); the selected body renders in a <code>switch</code> below the strip:</p>
+    <ul>
+        <li><strong>Live</strong> (<code>RenderGroupLive</code>, :1218) &mdash; 11-column live table per peer: Player, Class, DPS, Total, Hits, Crit, DoT, Pet, Non-Melee, Heals, Status (Combat in red, else dimmed).</li>
+        <li><strong>History</strong> (<code>RenderGroupHistory</code>, :1276) &mdash; encounters built by <code>BuildEncounters</code> (groups peer battles within <code>kEncounterGapToleranceMs = 5000</code>); a tree of encounter &rarr; per-peer rows (DPS, Total, Duration, Heals), ordered by <code>settings.sortNewest</code>.</li>
+        <li><strong>Graphs</strong> (<code>RenderGroupGraphs</code>, :1379) &mdash; a session-average DPS pie by character (self labelled "(you)") and a per-encounter grouped DPS bar chart (last 20 encounters, one bar per peer, colored by <code>peer.color</code>).</li>
+    </ul>
+    <p>At the top of the Peers tab, a <code>myui::StyledCheckbox</code> (Show Peers) and a 4-way
+    <code>myui::PillTabBar</code> set the peer filter (the pill index maps directly to <code>peerFilterMode</code> 0&ndash;3):</p>
+    <pre><code>static const char* kPeerFilters[] = { "All", "Server", "Group", "Raid" };
+engine.settings.peerFilterMode =
+    myui::PillTabBar("##peerfilter", kPeerFilters, 4, engine.settings.peerFilterMode);</code></pre>
+    <p>The value is cast to <code>PeerFilterMode</code> when passed to <code>VisiblePeers</code>. See <a href="actors.html">Cross-Character Sharing</a> for what each mode includes.</p>
+
+    <h2>Tab Pop-Out</h2>
+    <p>Any of the six tabs can be detached into its own window. State lives in <code>bool m_tabPopOut[TAB_COUNT]</code> (<code>MyDPSRenderer.h:72</code>). Because <code>PillTabBar</code> has no per-pill context hook, pop-out is re-attached at the strip level: after the bar, <code>ImGui::IsItemHovered() &amp;&amp; ImGui::IsMouseClicked(Right)</code> opens a popup whose "Pop Out" item sets <code>m_tabPopOut[m_mainTab] = true</code> for the active tab. Popped-out tabs are excluded when building the visible-labels array each frame. <code>RenderPopOutWindows</code> (<code>MyDPSRenderer.cpp:267</code>) draws one window per popped tab (default 520x360, title <code>"MyDPS - {Tab}##MQMyDPS_PopOut_{t}_{charName}"</code>) and reuses the same <code>RenderTabBody</code> logic; closing the window clears the flag and the tab returns to the strip.</p>
+
+    <h2>Icon Picker</h2>
+    <p><code>RenderIconPicker</code> (<code>MyDPSRenderer.cpp:1960</code>) is a modal-style dialog opened from the FCT config per-type icon table. A <code>myui::PillTabBar</code> selects Spell Icons vs Item Icons (the latter offset by <code>FCT_ITEM_ICON_OFFSET</code>), driving the <code>m_iconPickerShowItems</code> flag; a paginated icon grid follows with a <code>StyledSliderFloat</code> scale and <code>StyledSliderInt</code> page control. Hovering shows the icon ID and type. Picker state (<code>m_iconPickerOpen</code>, <code>m_iconPickerKey</code>, <code>m_iconPickerPage</code>, <code>m_iconPickerShowItems</code>, <code>m_iconPickerScale</code>) lives in the renderer.</p>
+
+    <h2>Config Window &mdash; 5 Tabs</h2>
+    <p>The config tab strip is a <code>myui::PillTabBar</code> (<code>m_configTab</code>) wrapped in an anonymous scope; each tab body renders in a <code>if (m_configTab == N)</code> block. Settings chrome uses the styled widgets throughout.</p>
+
+    <h3>Display</h3>
+    <p>12 booleans rendered via a <code>BoolEntry</code> array through <code>myui::StyledCheckbox</code> (sortNewest, showType, showTarget, showMyMisses, showMissMe, showHitMe, showCritHeals, showDS, addPet, autoStart, spamClickThrough). Two <code>StyledSliderInt</code>: <code>DisplayTime</code> and <code>BattleEndDelay</code>. Two <code>StyledSliderFloat</code>: <code>FontScale</code> and <code>SpamFontScale</code> (range 0.5&ndash;2.0). Column count scaling: <code>max(1, WindowWidth / divisor)</code>.</p>
+
+    <h3>Colors</h3>
+    <p>UI-only colors: background alpha slider plus 6 UI color keys (dmg-target, heal-target, dps, duration, avg, total). Damage-type colors (melee verbs, non-melee, dot, crit, etc.) are edited per-type in the FCT tab. Color pickers use <code>ImGuiColorEditFlags_NoInputs</code>.</p>
+
+    <h3>FCT</h3>
+    <p>Enable + Distinct Melee <code>myui::StyledCheckbox</code>, 7 <code>StyledSliderFloat</code> (IconScale, FloatDistance, ArcScale, Lifetime, BaseFontSize, FontScale, ShadowOffset). Bone Anchors section with 2 <code>StyledCombo</code> boxes (Player Bone / Other Bone) listing 28 bones with the 6 most practical ones first (Head, Chest, Pelvis, Legs, Left Boot, Right Boot). Per-type color/icon table showing 19 types when Distinct Melee is on, 11 when off. (These configure FCT; the FCT <em>renderer</em> itself stays stock.)</p>
+    <p>The <strong>color/icon table is responsive</strong>: each type is a 4-column <em>set</em> (Type &middot; Color swatch &middot; Icon picker &middot; Actions), and the table tiles <code>fctSets = max(1, windowWidth / 280)</code> sets per row, filling row-major. Visible types are collected into a list (honoring Distinct Melee) and chunked; columns repeat per set with <code>"Type##i"</code>-style unique IDs. Per-type actions are icon buttons: <code>ICON_FA_BAN</code> removes the icon / shows none (override to <code>FCT_ICON_NONE</code>) and <code>ICON_FA_UNDO</code> resets to default (erase the override). FontAwesome glyphs come from <code>&lt;imgui/fonts/IconsFontAwesome.h&gt;</code>.</p>
+
+    <h3>Theme</h3>
+    <p><code>myui::StyledCombo</code> with 11 themes from <code>Theme.h</code> (<code>DrawThemePicker</code>). <code>themeIdx</code> is persisted to INI. <code>ApplyTheme</code>/<code>ResetTheme</code> wraps the main and config windows (but not FCT).</p>
+
+    <h3>Patterns</h3>
+    <p>Exposes all pattern definitions from <code>MyDPSPatternEngine</code> for in-game editing. Includes Save and Reload buttons, plus a display of the JSON file path. Two editable tables:</p>
+    <ul>
+        <li><strong>Chat Patterns:</strong> 3-column table (Enable <code>myui::StyledCheckbox</code>, Key label, Pattern <code>myui::StyledEditField</code> &mdash; readonly text that opens a click-to-edit Accept/Cancel popup) for the 15 standard patterns</li>
+        <li><strong>Pet Patterns:</strong> Same layout for the 2 pet patterns</li>
+    </ul>
+    <p>Users can toggle individual patterns on/off, edit the raw Blech pattern text, then Save to persist to JSON and Reload to re-register the updated Blech events.</p>
+
+    <h2>Combat Output Overlay</h2>
+    <p>No title bar, no focus on appearing (<code>ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoFocusOnAppearing</code>). Click-through via <code>ImGuiWindowFlags_NoInputs</code> when <code>spamClickThrough=true</code>. Uses independent <code>spamFontScale</code>. Background alpha controlled by <code>settings.bgColor.w</code>.</p>
+    <p>Iterates <code>recentRecords</code> in reverse (newest on top). Entries expire after <code>displayTime</code> seconds. Each entry is colored by its damage type color key, with pet types overridden to <code>"pet"</code> and melee using the attack verb as key.</p>
+
+    <h2>Color Key Reference</h2>
+    <p>All 25 keys from <code>InitDefaultColors</code> (<code>MyDPSData.h:232</code>):</p>
+
+    <table>
+        <tr><th>Key</th><th>Default RGBA</th><th>Color Name</th><th>Used For</th></tr>
+        <tr><td><code>crush</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee crush verb</td></tr>
+        <tr><td><code>kick</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee kick verb</td></tr>
+        <tr><td><code>bite</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee bite verb</td></tr>
+        <tr><td><code>bash</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee bash verb</td></tr>
+        <tr><td><code>hit</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee hit / generic melee</td></tr>
+        <tr><td><code>pierce</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee pierce verb</td></tr>
+        <tr><td><code>backstab</code></td><td>1.0, 0.0, 0.0, 1.0</td><td>Red</td><td>Melee backstab verb</td></tr>
+        <tr><td><code>slash</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Melee slash verb</td></tr>
+        <tr><td><code>miss</code></td><td>0.5, 0.5, 0.5, 1.0</td><td>Gray</td><td>Player misses</td></tr>
+        <tr><td><code>missed-me</code></td><td>0.5, 0.5, 0.5, 1.0</td><td>Gray</td><td>NPC misses player</td></tr>
+        <tr><td><code>non-melee</code></td><td>0.0, 1.0, 1.0, 1.0</td><td>Cyan</td><td>Direct damage spells</td></tr>
+        <tr><td><code>hit-by</code></td><td>1.0, 0.0, 0.0, 1.0</td><td>Red</td><td>Incoming melee damage</td></tr>
+        <tr><td><code>crit</code></td><td>1.0, 1.0, 0.0, 1.0</td><td>Yellow</td><td>Critical hits</td></tr>
+        <tr><td><code>hit-by-non-melee</code></td><td>1.0, 1.0, 0.0, 1.0</td><td>Yellow</td><td>Incoming spell damage</td></tr>
+        <tr><td><code>dShield</code></td><td>0.0, 1.0, 0.0, 1.0</td><td>Green</td><td>Damage shield procs</td></tr>
+        <tr><td><code>critHeals</code></td><td>0.0, 1.0, 1.0, 1.0</td><td>Cyan</td><td>Critical heals</td></tr>
+        <tr><td><code>dot</code></td><td>1.0, 1.0, 0.0, 1.0</td><td>Yellow</td><td>Damage over time</td></tr>
+        <tr><td><code>heal</code></td><td>0.0, 1.0, 0.5, 1.0</td><td>Spring Green</td><td>Direct heals</td></tr>
+        <tr><td><code>dmg-target</code></td><td>1.0, 0.6, 0.6, 1.0</td><td>Salmon</td><td>Target names in tables</td></tr>
+        <tr><td><code>heal-target</code></td><td>0.6, 0.8, 1.0, 1.0</td><td>Light Blue</td><td>Healed player names</td></tr>
+        <tr><td><code>dps</code></td><td>1.0, 0.9, 0.4, 1.0</td><td>Gold</td><td>DPS values, menu bar DPS</td></tr>
+        <tr><td><code>duration</code></td><td>0.8, 0.8, 0.8, 1.0</td><td>Light Gray</td><td>Duration values</td></tr>
+        <tr><td><code>avg</code></td><td>0.9, 0.9, 0.9, 1.0</td><td>Near White</td><td>Average damage values</td></tr>
+        <tr><td><code>total</code></td><td>1.0, 1.0, 1.0, 1.0</td><td>White</td><td>Total values, hit counts</td></tr>
+        <tr><td><code>pet</code></td><td>0.8, 0.6, 1.0, 1.0</td><td>Light Purple</td><td>Pet damage (overrides type)</td></tr>
+    </table>
+
+    <div class="page-nav">
+        <a href="spawn-tracking.html">&larr; Spawn ID Tracking</a> |
+        <a href="widgets.html">Next: Styled Widgets &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Combat Overlay — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html" class="active">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-05-18</em></p>
+    <h1>Combat Overlay</h1>
+    <p>The Combat Overlay (also called Combat Output) is a compact, borderless window that displays a real-time feed of your damage and healing events as they happen. It sits on top of your game without a title bar, giving you a quick-glance damage readout during combat.</p>
+
+    <h2>Toggling the Overlay</h2>
+    <p>Use any of these methods to show or hide the overlay:</p>
+    <ul>
+      <li>Type <code>/mydps spam</code> in chat</li>
+      <li>Toggle the <strong>Show Combat Output</strong> checkbox in Settings</li>
+    </ul>
+
+    <h2>What It Shows</h2>
+    <p>Each line in the overlay represents a damage or healing event, displayed in this format:</p>
+    <pre><code>[Type] Target: Damage</code></pre>
+    <p>For example:</p>
+    <ul>
+      <li><strong>[crush] a gnoll: 2.5k</strong> — You crushed a gnoll for 2,500 damage (the label reflects the specific attack verb: crush, slash, kick, bash, pierce, backstab, bite, hit, etc.)</li>
+      <li><strong>[DoT] a skeleton: 1.2k</strong> — Your DoT ticked on a skeleton for 1,200</li>
+      <li><strong>[Heal] Groupmate: 3.8k</strong> — You healed a groupmate for 3,800</li>
+    </ul>
+
+    <p>Entries appear in reverse chronological order (newest on top) and automatically fade out after a configurable number of seconds.</p>
+
+    <h2>Display Options</h2>
+    <table>
+      <thead>
+        <tr><th>Option</th><th>What It Does</th><th>Where to Change</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Show Type</td><td>Include the damage type label (e.g., [crush], [DoT])</td><td>Settings &rarr; Display</td></tr>
+        <tr><td>Show Target</td><td>Include the target name</td><td>Settings &rarr; Display</td></tr>
+        <tr><td>Display Time</td><td>How many seconds each entry stays visible (1&ndash;60, default 10)</td><td>Settings &rarr; Display</td></tr>
+        <tr><td>Output Font Scale</td><td>Text size of the overlay (0.5&ndash;2.0, default 1.0)</td><td>Settings &rarr; Display</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Click-Through Mode</h2>
+    <p>By default, the overlay is in click-through (locked) mode, meaning your mouse clicks pass through it to the game behind it. This prevents the overlay from interfering with gameplay.</p>
+    <p>To toggle click-through mode:</p>
+    <ul>
+      <li>Type <code>/mydps lock</code> in chat</li>
+      <li>Toggle the <strong>Lock Combat Output</strong> checkbox in Settings</li>
+    </ul>
+
+    <div class="tip">Unlock the overlay temporarily when you need to reposition it, then lock it again so it does not intercept your clicks during combat.</div>
+
+    <h2>Filtering What Appears</h2>
+    <p>You can control which types of events show up in the overlay using these Settings toggles:</p>
+    <table>
+      <thead>
+        <tr><th>Toggle</th><th>What It Filters</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Show My Misses</td><td>Your attacks that missed</td></tr>
+        <tr><td>Show Missed Me</td><td>Enemy attacks that missed you</td></tr>
+        <tr><td>Show Hit Me</td><td>Damage you received from enemies</td></tr>
+        <tr><td>Show Crit Heals</td><td>Critical heal events</td></tr>
+        <tr><td>Show Damage Shield</td><td>Damage shield procs</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">These filters control what appears in the combat overlay and floating text — they do not affect your DPS or damage totals. Incoming damage (Hit Me) never counts toward your DPS or battle totals regardless of this setting. The exception is Crit Heals: if "Show Crit Heals" is disabled, critical heals will not be counted in your Healing totals either.</div>
+
+    <div class="page-nav">
+      &larr; <a href="tracking-damage.html">Tracking Damage</a> |
+      Next: <a href="floating-combat-text.html">Floating Combat Text &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

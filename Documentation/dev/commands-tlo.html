@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commands &amp; TLO — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html" class="active">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-06</em></p>
+    <h1>Commands &amp; TLO</h1>
+
+    <h2>Slash Commands</h2>
+    <p><code>MyDPSCommand</code> (<code>MQMyDPS.cpp:152</code>) uses <code>ci_equals()</code> for case-insensitive matching on the first argument.</p>
+
+    <table>
+        <tr><th>Command</th><th>Effect</th><th>Use Case</th></tr>
+        <tr><td><code>/mydps</code></td><td>Toggle main window</td><td>Quick show/hide</td></tr>
+        <tr><td><code>/mydps show</code></td><td>Show main window</td><td>Macro: <code>/if (${MyDPS.InCombat}) /mydps show</code></td></tr>
+        <tr><td><code>/mydps hide</code></td><td>Hide main window</td><td>Clean up UI</td></tr>
+        <tr><td><code>/mydps start</code></td><td>Set <code>tracking=true</code></td><td>After zoning if autoStart off</td></tr>
+        <tr><td><code>/mydps stop</code></td><td>Set <code>tracking=false</code></td><td>Pause without resetting</td></tr>
+        <tr><td><code>/mydps reset</code></td><td><code>ResetAll()</code></td><td>Start of dungeon run</td></tr>
+        <tr><td><code>/mydps report</code></td><td>Print session stats + send to MQMyChat</td><td>Screenshots, logs</td></tr>
+        <tr><td><code>/mydps spam</code></td><td>Toggle combat output</td><td>Show/hide overlay</td></tr>
+        <tr><td><code>/mydps lock</code></td><td>Toggle <code>spamClickThrough</code></td><td>When spam covers clickable UI</td></tr>
+        <tr><td><code>/mydps fct</code></td><td>Toggle FCT</td><td>Quick enable/disable</td></tr>
+        <tr><td><code>/mydps config</code></td><td>Toggle config window</td><td>Open settings</td></tr>
+        <tr><td><code>/mydps peers</code></td><td>Toggle peer (group) display (<code>settings.showPeers</code>)</td><td>Show/hide cross-character data</td></tr>
+        <tr><td><code>/mydps filter all|server|group|raid</code></td><td>Set peer filter mode (0/1/2/3 &rarr; <code>settings.peerFilterMode</code>)</td><td>Scope the Peers tab and live-meter</td></tr>
+        <tr><td><code>/mydps debug</code></td><td>Toggle verbose peer-discovery logging (<code>settings.debugMode</code>)</td><td>Troubleshoot peer sharing</td></tr>
+        <tr><td><code>/mydps peerdebug</code></td><td>Print actor mailbox status + known peers (<code>actors.DebugDump()</code>)</td><td>Inspect the peer cache</td></tr>
+        <tr><td><code>/mydps patterns reload</code></td><td>Reload patterns from JSON</td><td>After editing Patterns.json on disk</td></tr>
+        <tr><td><code>/mydps help</code></td><td>Print all commands to chat</td><td>In-game command reference</td></tr>
+    </table>
+
+    <div class="note">All commands write feedback to the MQ chat window using color-coded <code>WriteChatf</code> calls (yellow <code>\at</code> prefix, white <code>\ax</code> body).</div>
+
+    <h2>TLO: ${MyDPS}</h2>
+    <p>Implemented in <code>MyDPSTLO.cpp</code> / <code>MyDPSTLO.h</code>. Provides read-only access to engine state. Registered as a top-level object via <code>AddTopLevelObject("MyDPS", ...)</code> during <code>RegisterMyDPSTLO()</code>.</p>
+
+    <h3>${MyDPS} Members</h3>
+    <table>
+        <tr><th>Member</th><th>Type</th><th>Description</th></tr>
+        <tr><td><code>Version</code></td><td>float</td><td>Plugin version (currently 0.1)</td></tr>
+        <tr><td><code>DPS</code></td><td>float</td><td>Session DPS (total damage / session duration)</td></tr>
+        <tr><td><code>TotalDamage</code></td><td>int64</td><td>Session total damage</td></tr>
+        <tr><td><code>InCombat</code></td><td>bool</td><td>Combat state flag</td></tr>
+        <tr><td><code>BattleDPS</code></td><td>float</td><td>Current battle DPS</td></tr>
+        <tr><td><code>BattleDuration</code></td><td>float</td><td>Current battle duration (seconds)</td></tr>
+        <tr><td><code>TargetCount</code></td><td>int</td><td>Distinct targets in current battle</td></tr>
+        <tr><td><code>BattleCount</code></td><td>int</td><td>Total completed battles in session</td></tr>
+        <tr><td><code>Target[id]</code></td><td>MyDPSTarget</td><td>Lookup by spawn ID (numeric) or name (string)</td></tr>
+    </table>
+
+    <h3>${MyDPS.Target[id]} Members</h3>
+    <table>
+        <tr><th>Member</th><th>Type</th><th>Description</th></tr>
+        <tr><td><code>Name</code></td><td>string</td><td>Display name of the target</td></tr>
+        <tr><td><code>SpawnID</code></td><td>int</td><td>Spawn ID</td></tr>
+        <tr><td><code>DPS</code></td><td>float</td><td>DPS for this target (totalDamage / duration)</td></tr>
+        <tr><td><code>TotalDamage</code></td><td>int64</td><td>Total damage dealt to this target</td></tr>
+        <tr><td><code>HitCount</code></td><td>int</td><td>Number of hits on this target</td></tr>
+        <tr><td><code>Duration</code></td><td>float</td><td>Time from first hit to last hit (minimum 1s)</td></tr>
+        <tr><td><code>AvgDamage</code></td><td>float</td><td>Average damage per hit</td></tr>
+    </table>
+
+    <h3>Methods</h3>
+    <p><code>${MyDPS.Reset}</code> &mdash; calls <code>ResetAll()</code> on the engine, returns true.</p>
+
+    <h3>Target Lookup</h3>
+    <p>The <code>Target</code> member accepts an index that is treated as a spawn ID when the whole string is numeric (<code>IsNumber()</code> &rarr; <code>FindTargetBySpawnID(GetIntFromString(Index, 0))</code>, a direct map lookup in <code>currentTargets</code>) and as a name otherwise (<code>FindTargetByName</code>, a linear scan matching <code>data.name</code>). Both helpers come from <code>mq/base/String.h</code>.</p>
+
+    <div class="note">Spawn-ID form is most reliable &mdash; it survives name collisions when multiple mobs share the same display name.</div>
+
+    <h2>Macro Examples</h2>
+    <pre><code>/echo Current DPS: ${MyDPS.BattleDPS}
+/echo Target damage: ${MyDPS.Target[${Target.ID}].TotalDamage}
+/echo Session total: ${MyDPS.TotalDamage}
+/if (${MyDPS.InCombat}) /echo In combat!
+/echo Goblin DPS: ${MyDPS.Target[a goblin].DPS}</code></pre>
+
+    <h2>Complete Settings Reference</h2>
+    <p>All settings are persisted to a per-character INI file at <code>[MQ Config Dir]\MQMyDPS\[Server]\[CharName].ini</code>.</p>
+
+    <h3>[Options] Section (16 keys)</h3>
+    <table>
+        <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        <tr><td><code>SortNewest</code></td><td>bool</td><td>true</td><td><code>settings.sortNewest</code></td></tr>
+        <tr><td><code>ShowType</code></td><td>bool</td><td>true</td><td><code>settings.showType</code></td></tr>
+        <tr><td><code>ShowTarget</code></td><td>bool</td><td>true</td><td><code>settings.showTarget</code></td></tr>
+        <tr><td><code>ShowMyMisses</code></td><td>bool</td><td>true</td><td><code>settings.showMyMisses</code></td></tr>
+        <tr><td><code>ShowMissMe</code></td><td>bool</td><td>true</td><td><code>settings.showMissMe</code></td></tr>
+        <tr><td><code>ShowHitMe</code></td><td>bool</td><td>true</td><td><code>settings.showHitMe</code></td></tr>
+        <tr><td><code>ShowCritHeals</code></td><td>bool</td><td>true</td><td><code>settings.showCritHeals</code></td></tr>
+        <tr><td><code>ShowDS</code></td><td>bool</td><td>true</td><td><code>settings.showDS</code></td></tr>
+        <tr><td><code>AddPet</code></td><td>bool</td><td>true</td><td><code>settings.addPet</code></td></tr>
+        <tr><td><code>AutoStart</code></td><td>bool</td><td>false</td><td><code>settings.autoStart</code></td></tr>
+        <tr><td><code>SpamClickThrough</code></td><td>bool</td><td>true</td><td><code>settings.spamClickThrough</code></td></tr>
+        <tr><td><code>DisplayTime</code></td><td>int</td><td>10</td><td><code>settings.displayTime</code></td></tr>
+        <tr><td><code>BattleEndDelay</code></td><td>int</td><td>10</td><td><code>settings.battleEndDelay</code></td></tr>
+        <tr><td><code>FontScale</code></td><td>float</td><td>1.0</td><td><code>settings.fontScale</code> (clamped 0.5&ndash;2.0)</td></tr>
+        <tr><td><code>SpamFontScale</code></td><td>float</td><td>1.0</td><td><code>settings.spamFontScale</code> (clamped 0.5&ndash;2.0)</td></tr>
+        <tr><td><code>ThemeIdx</code></td><td>int</td><td>10</td><td><code>settings.themeIdx</code></td></tr>
+    </table>
+
+    <h3>[Windows] Section (3 keys)</h3>
+    <table>
+        <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        <tr><td><code>ShowMain</code></td><td>bool</td><td>true</td><td><code>showMainWindow</code></td></tr>
+        <tr><td><code>ShowConfig</code></td><td>bool</td><td>false</td><td><code>showConfigWindow</code></td></tr>
+        <tr><td><code>ShowCombatSpam</code></td><td>bool</td><td>true</td><td><code>showCombatSpam</code></td></tr>
+    </table>
+
+    <h3>[Group] Section (3 keys)</h3>
+    <table>
+        <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        <tr><td><code>ShowPeers</code></td><td>bool</td><td>true</td><td><code>settings.showPeers</code></td></tr>
+        <tr><td><code>FilterMode</code></td><td>int</td><td>0</td><td><code>settings.peerFilterMode</code> (0=All, 1=Server, 2=Group, 3=Raid; clamped 0&ndash;3)</td></tr>
+        <tr><td><code>Debug</code></td><td>bool</td><td>false</td><td><code>settings.debugMode</code></td></tr>
+    </table>
+
+    <h3>[FCT] Section (20 keys)</h3>
+    <table>
+        <tr><th>INI Key</th><th>Type</th><th>Default</th><th>Maps To</th></tr>
+        <tr><td><code>Enabled</code></td><td>bool</td><td>false</td><td><code>settings.showFCT</code></td></tr>
+        <tr><td><code>Melee</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_Melee</code></td></tr>
+        <tr><td><code>DD</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_DD</code></td></tr>
+        <tr><td><code>DoT</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_DoT</code></td></tr>
+        <tr><td><code>Pet</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_Pet</code></td></tr>
+        <tr><td><code>Crit</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_Crit</code></td></tr>
+        <tr><td><code>Heals</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_Heals</code></td></tr>
+        <tr><td><code>CritHeals</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_CritHeals</code></td></tr>
+        <tr><td><code>HitBy</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_HitBy</code></td></tr>
+        <tr><td><code>DS</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_DS</code></td></tr>
+        <tr><td><code>Icons</code></td><td>bool</td><td>true</td><td><code>settings.showFCT_Icons</code></td></tr>
+        <tr><td><code>DistinctMelee</code></td><td>bool</td><td>true</td><td><code>settings.fctDistinctMelee</code></td></tr>
+        <tr><td><code>UseSpellIcons</code></td><td>bool</td><td>false</td><td><code>settings.fctUseSpellIcons</code></td></tr>
+        <tr><td><code>IconScale</code></td><td>float</td><td>1.0</td><td><code>settings.fctIconScale</code></td></tr>
+        <tr><td><code>FloatDistance</code></td><td>float</td><td>150.0</td><td><code>settings.fctFloatDistance</code></td></tr>
+        <tr><td><code>ArcScale</code></td><td>float</td><td>1.0</td><td><code>settings.fctArcScale</code></td></tr>
+        <tr><td><code>Lifetime</code></td><td>float</td><td>2.5</td><td><code>settings.fctLifetime</code></td></tr>
+        <tr><td><code>BaseFontSize</code></td><td>float</td><td>24.0</td><td><code>settings.fctBaseFontSize</code></td></tr>
+        <tr><td><code>FontScale</code></td><td>float</td><td>1.5</td><td><code>settings.fctFontScale</code></td></tr>
+        <tr><td><code>ShadowOffset</code></td><td>float</td><td>2.0</td><td><code>settings.fctShadowOffset</code></td></tr>
+        <tr><td><code>BonePlayer</code></td><td>int</td><td>11</td><td><code>settings.fctBonePlayer</code> (Chest)</td></tr>
+        <tr><td><code>BoneOther</code></td><td>int</td><td>20</td><td><code>settings.fctBoneOther</code> (Legs)</td></tr>
+    </table>
+
+    <h3>[FCTIcons] Section</h3>
+    <p>Per-type icon override entries. Each key is an FCT type key (from <code>GetFCTTypeInfoList</code>), and the value is the icon ID. Special values: <code>-1</code> = no icon (<code>FCT_ICON_NONE</code>), <code>-2</code> = use default resolution.</p>
+
+    <h3>[Colors] Section (25 keys + background)</h3>
+    <table>
+        <tr><th>INI Key</th><th>Type</th><th>Default RGBA</th><th>Maps To</th></tr>
+        <tr><td><code>crush</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["crush"]</code></td></tr>
+        <tr><td><code>kick</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["kick"]</code></td></tr>
+        <tr><td><code>bite</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["bite"]</code></td></tr>
+        <tr><td><code>bash</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["bash"]</code></td></tr>
+        <tr><td><code>hit</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["hit"]</code></td></tr>
+        <tr><td><code>pierce</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["pierce"]</code></td></tr>
+        <tr><td><code>backstab</code></td><td>MQColor</td><td>255, 0, 0, 255</td><td><code>damageColors["backstab"]</code></td></tr>
+        <tr><td><code>slash</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["slash"]</code></td></tr>
+        <tr><td><code>miss</code></td><td>MQColor</td><td>128, 128, 128, 255</td><td><code>damageColors["miss"]</code></td></tr>
+        <tr><td><code>missed-me</code></td><td>MQColor</td><td>128, 128, 128, 255</td><td><code>damageColors["missed-me"]</code></td></tr>
+        <tr><td><code>non-melee</code></td><td>MQColor</td><td>0, 255, 255, 255</td><td><code>damageColors["non-melee"]</code></td></tr>
+        <tr><td><code>hit-by</code></td><td>MQColor</td><td>255, 0, 0, 255</td><td><code>damageColors["hit-by"]</code></td></tr>
+        <tr><td><code>crit</code></td><td>MQColor</td><td>255, 255, 0, 255</td><td><code>damageColors["crit"]</code></td></tr>
+        <tr><td><code>hit-by-non-melee</code></td><td>MQColor</td><td>255, 255, 0, 255</td><td><code>damageColors["hit-by-non-melee"]</code></td></tr>
+        <tr><td><code>dShield</code></td><td>MQColor</td><td>0, 255, 0, 255</td><td><code>damageColors["dShield"]</code></td></tr>
+        <tr><td><code>critHeals</code></td><td>MQColor</td><td>0, 255, 255, 255</td><td><code>damageColors["critHeals"]</code></td></tr>
+        <tr><td><code>dot</code></td><td>MQColor</td><td>255, 255, 0, 255</td><td><code>damageColors["dot"]</code></td></tr>
+        <tr><td><code>heal</code></td><td>MQColor</td><td>0, 255, 128, 255</td><td><code>damageColors["heal"]</code></td></tr>
+        <tr><td><code>dmg-target</code></td><td>MQColor</td><td>255, 153, 153, 255</td><td><code>damageColors["dmg-target"]</code></td></tr>
+        <tr><td><code>heal-target</code></td><td>MQColor</td><td>153, 204, 255, 255</td><td><code>damageColors["heal-target"]</code></td></tr>
+        <tr><td><code>dps</code></td><td>MQColor</td><td>255, 230, 102, 255</td><td><code>damageColors["dps"]</code></td></tr>
+        <tr><td><code>duration</code></td><td>MQColor</td><td>204, 204, 204, 255</td><td><code>damageColors["duration"]</code></td></tr>
+        <tr><td><code>avg</code></td><td>MQColor</td><td>230, 230, 230, 255</td><td><code>damageColors["avg"]</code></td></tr>
+        <tr><td><code>total</code></td><td>MQColor</td><td>255, 255, 255, 255</td><td><code>damageColors["total"]</code></td></tr>
+        <tr><td><code>pet</code></td><td>MQColor</td><td>204, 153, 255, 255</td><td><code>damageColors["pet"]</code></td></tr>
+        <tr><td><code>background</code></td><td>MQColor</td><td>(theme default)</td><td><code>settings.bgColor</code></td></tr>
+    </table>
+
+    <div class="warning">Colors are stored as <code>MQColor</code> (0&ndash;255 RGBA) in the INI but converted to <code>ImVec4</code> (0.0&ndash;1.0 float) in memory. The <code>GetPrivateProfileColor</code> / <code>WritePrivateProfileColor</code> helpers handle the conversion automatically.</div>
+
+    <div class="page-nav">
+        <a href="actors.html">&larr; Cross-Character Sharing</a> |
+        <a href="mychat-integration.html">Next: MQMyChat Integration &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

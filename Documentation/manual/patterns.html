@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Patterns — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html" class="active">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-08</em></p>
+    <h1>Chat Patterns</h1>
+    <p>MQMyDPS recognizes damage, healing, and miss messages by matching them against a set of <strong>chat patterns</strong>. These patterns are fully customizable, letting you adapt the plugin to different server types (live, emulated, custom) where combat messages may differ.</p>
+
+    <h2>How It Works</h2>
+    <p>When EverQuest prints a combat message in your chat window, MQMyDPS compares it against every enabled pattern. If a pattern matches, the plugin extracts the relevant values (target name, damage amount, spell name, etc.) and records the event. Each pattern is tied to a specific damage type (melee, DoT, heal, etc.) that determines how the event is categorized.</p>
+
+    <div class="tip">The default patterns work out of the box for standard EverQuest servers. You only need to edit them if your server uses non-standard combat message formats.</div>
+
+    <h2>Where Patterns Are Stored</h2>
+    <p>Patterns are saved in a JSON file specific to each server:</p>
+    <pre><code>[MQ Config Directory]\MQMyDPS\[ServerName]\Patterns.json</code></pre>
+    <p>The first time you load MQMyDPS on a server, this file is created automatically with all default patterns. The file is shared across all characters on that server.</p>
+
+    <h2>The Patterns Tab</h2>
+    <p>You can view and edit patterns in-game through the <strong>Patterns</strong> tab in the settings window (<code>/mydps config</code>). The tab shows two tables:</p>
+
+    <h3>Chat Patterns</h3>
+    <p>These match your own damage, healing, and miss messages. Each row has:</p>
+    <ul>
+      <li><strong>Enable checkbox</strong> &mdash; Toggle the pattern on or off without deleting it</li>
+      <li><strong>Key</strong> &mdash; The internal name that identifies the pattern type (e.g., "melee", "dot", "crit_heal"). The Key is read-only in the tab; new pattern keys can only be added by editing the JSON file directly.</li>
+      <li><strong>Pattern</strong> &mdash; The text pattern to match, with named captures and tokens. The current pattern is shown as read-only text; <strong>click it to open a small editor</strong> at your cursor. Make your change there and press <strong>Accept</strong> (or Enter) to apply it, or <strong>Cancel</strong> (or Esc) to discard it &mdash; the pattern only changes when you accept.</li>
+    </ul>
+
+    <h3>Pet Patterns</h3>
+    <p>These match damage dealt by your pet. They work the same as chat patterns but use the <code>{PetName}</code> token to match your pet's current name.</p>
+
+    <h3>Applying Changes</h3>
+    <p>After editing patterns in the tab:</p>
+    <ol>
+      <li>Click <strong>Save</strong> to write changes to the JSON file</li>
+      <li>Click <strong>Reload</strong> to re-register all patterns with the matching engine</li>
+    </ol>
+    <p>You can also reload from chat with:</p>
+    <pre><code>/mydps patterns reload</code></pre>
+
+    <div class="note">Changes to patterns only take effect after a reload. Simply editing the text in the tab does not immediately change how messages are matched.</div>
+
+    <h2>Pattern Syntax</h2>
+    <p>Patterns use a straightforward syntax to match EverQuest chat messages.</p>
+
+    <h3>Named Captures</h3>
+    <p>Named captures extract specific values from a message. They are written with <code>#</code> delimiters:</p>
+    <table>
+      <thead>
+        <tr><th>Capture</th><th>What It Extracts</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>#target#</code></td><td>The name of the target being hit or healed</td></tr>
+        <tr><td><code>#damage#</code></td><td>The numeric damage or healing amount</td></tr>
+        <tr><td><code>#verb#</code></td><td>The attack verb (slash, crush, pierce, kick, etc.)</td></tr>
+        <tr><td><code>#spell#</code></td><td>The name of the spell or ability</td></tr>
+        <tr><td><code>#attacker#</code></td><td>The name of whoever is attacking you</td></tr>
+        <tr><td><code>#healer#</code></td><td>The name of whoever healed you</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Wildcards</h3>
+    <p>Use <code>#*#</code> to match any text you do not need to capture. This is useful for matching messages where some parts vary but you only care about specific values.</p>
+
+    <h3>Tokens</h3>
+    <p>Tokens are placeholders that are replaced with actual values when the pattern is registered:</p>
+    <table>
+      <thead>
+        <tr><th>Token</th><th>Replaced With</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>{CharName}</code></td><td>Your character's name</td></tr>
+        <tr><td><code>{PetName}</code></td><td>Your pet's current name (pet patterns only)</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Default Patterns</h2>
+    <p>These are the patterns included by default. They match standard EverQuest combat messages.</p>
+
+    <h3>Damage Patterns</h3>
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Pattern</th><th>Example Match</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>melee</td>
+          <td><code>You #verb# #target# for #damage# points of damage.</code></td>
+          <td>You slash a gnoll for 150 points of damage.</td>
+        </tr>
+        <tr>
+          <td>miss</td>
+          <td><code>You try to #verb# #target#, but miss!</code></td>
+          <td>You try to slash a gnoll, but miss!</td>
+        </tr>
+        <tr>
+          <td>non_melee</td>
+          <td><code>{CharName} hit #target# for #damage# points of non-melee damage.</code></td>
+          <td>Soandso hit a gnoll for 500 points of non-melee damage.</td>
+        </tr>
+        <tr>
+          <td>crit</td>
+          <td><code>#*#You score a critical hit!#*#(#damage#)</code></td>
+          <td>You score a critical hit!(300)</td>
+        </tr>
+        <tr>
+          <td>crit_blast</td>
+          <td><code>#*#You deliver a critical blast!#*#(#damage#)</code></td>
+          <td>You deliver a critical blast!(800)</td>
+        </tr>
+        <tr>
+          <td>deadly_strike</td>
+          <td><code>#*#{CharName} scores a Deadly Strike!#*#(#damage#)</code></td>
+          <td>Soandso scores a Deadly Strike!(1200)</td>
+        </tr>
+        <tr>
+          <td>dot</td>
+          <td><code>#target# has taken #damage# damage from your #spell#.</code></td>
+          <td>A gnoll has taken 200 damage from your Flame Lick.</td>
+        </tr>
+        <tr>
+          <td>damage_shield</td>
+          <td><code>#target# was hit by non-melee for #damage# points of damage.</code></td>
+          <td>A gnoll was hit by non-melee for 50 points of damage.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Incoming Damage Patterns</h3>
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Pattern</th><th>Example Match</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>hit_by</td>
+          <td><code>#attacker# #verb# YOU for #damage# points of damage.</code></td>
+          <td>A gnoll slashes YOU for 100 points of damage.</td>
+        </tr>
+        <tr>
+          <td>missed_me</td>
+          <td><code>#attacker# tries to #verb# YOU, but misses!</code></td>
+          <td>A gnoll tries to slash YOU, but misses!</td>
+        </tr>
+        <tr>
+          <td>hit_by_non_melee</td>
+          <td><code>#attacker# hit YOU for #damage# points of non-melee damage.</code></td>
+          <td>A gnoll hit YOU for 300 points of non-melee damage.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Healing Patterns</h3>
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Pattern</th><th>Example Match</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>crit_heal</td>
+          <td><code>#*#You perform an exceptional heal!#*#(#damage#)</code></td>
+          <td>You perform an exceptional heal!(450)</td>
+        </tr>
+        <tr>
+          <td>direct_heal</td>
+          <td><code>You have healed #target# for #damage# hit points with your #spell#.</code></td>
+          <td>You have healed Soandso for 400 hit points with your Light Healing.</td>
+        </tr>
+        <tr>
+          <td>direct_heal_simple</td>
+          <td><code>You have healed #target# for #damage# points.</code></td>
+          <td>You have healed Soandso for 400 points.</td>
+        </tr>
+        <tr>
+          <td>healed_by</td>
+          <td><code>#healer# healed you for #damage# hit points by #spell#.</code></td>
+          <td>Clericname healed you for 500 hit points by Complete Heal.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Pet Patterns</h3>
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Pattern</th><th>Example Match</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>pet_melee</td>
+          <td><code>{PetName} #verb# #target# for #damage# points of damage.</code></td>
+          <td>Xabtik hits a gnoll for 75 points of damage.</td>
+        </tr>
+        <tr>
+          <td>pet_non_melee</td>
+          <td><code>{PetName} hit #target# for #damage# points of non-melee damage.</code></td>
+          <td>Xabtik hit a gnoll for 200 points of non-melee damage.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Editing the JSON File Directly</h2>
+    <p>You can also edit the Patterns.json file with any text editor. The file structure looks like this:</p>
+    <pre><code>{
+    "version": 2,
+    "patterns": {
+        "melee": {
+            "type": "Melee",
+            "pattern": "You #verb# #target# for #damage# points of damage.",
+            "enabled": true
+        },
+        "dot": {
+            "type": "DoT",
+            "pattern": "#target# has taken #damage# damage from your #spell#.",
+            "enabled": true
+        }
+    },
+    "pet_patterns": {
+        "pet_melee": {
+            "type": "PetMelee",
+            "pattern": "{PetName} #verb# #target# for #damage# points of damage.",
+            "enabled": true
+        }
+    }
+}</code></pre>
+    <p>After saving your edits, run <code>/mydps patterns reload</code> in-game to apply the changes.</p>
+
+    <div class="warning">Be careful with the pattern text. The trailing punctuation (periods, exclamation marks) must match exactly what EverQuest prints. A missing period at the end of a pattern will prevent it from matching.</div>
+
+    <h2>Writing Custom Patterns</h2>
+    <p>If your server uses non-standard combat messages, you can modify the existing patterns or add new ones to match. Here are some guidelines:</p>
+    <ul>
+      <li>The literal text in your pattern must match the chat message exactly, including punctuation and capitalization</li>
+      <li>Use named captures (<code>#name#</code>) for the parts that change between messages</li>
+      <li>Use wildcards (<code>#*#</code>) to skip over variable-length text you do not need</li>
+      <li>Use <code>{CharName}</code> wherever your character name appears in the message</li>
+      <li>The <strong>key</strong> name must match one of the recognized types (melee, miss, non_melee, crit, crit_blast, deadly_strike, dot, damage_shield, hit_by, missed_me, crit_heal, direct_heal, direct_heal_simple, healed_by, hit_by_non_melee, pet_melee, pet_non_melee)</li>
+      <li>Each key can only appear once in the pattern list</li>
+    </ul>
+
+    <h2>Version Upgrades</h2>
+    <p>When MQMyDPS updates its default patterns (for example, to fix a pattern that was not matching correctly), it may need to upgrade your Patterns.json file. If your file has an older version number, the plugin will automatically regenerate default patterns and save a new file. A message in chat will tell you when this happens.</p>
+
+    <div class="note">If you have customized your patterns and an upgrade resets them, you can restore your changes by editing the new JSON file. Version upgrades only happen when a pattern fix is important enough to require it.</div>
+
+    <h2>Troubleshooting</h2>
+    <h3>A pattern is not matching</h3>
+    <ul>
+      <li>Make sure the pattern is enabled (checkbox is checked in the Patterns tab)</li>
+      <li>Verify that the literal text matches exactly what appears in your EQ chat window, including punctuation at the end</li>
+      <li>Make sure you clicked Save and then Reload after making changes</li>
+      <li>Check that <code>{CharName}</code> is being used where your character name appears (not your actual name typed literally)</li>
+    </ul>
+
+    <h3>Pet damage is not being tracked</h3>
+    <ul>
+      <li>Make sure <strong>Track Pet</strong> is enabled in the Display settings tab</li>
+      <li>Pet patterns are registered dynamically when your pet is detected. If you just summoned a pet, give it a moment to be recognized</li>
+      <li>Check that the pet patterns use <code>{PetName}</code> and not a hardcoded pet name</li>
+    </ul>
+
+    <div class="page-nav">
+      &larr; <a href="commands.html">Commands</a> |
+      Next: <a href="macro-integration.html">Macro Integration &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

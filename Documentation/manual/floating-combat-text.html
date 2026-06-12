@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Floating Combat Text — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html" class="active">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-08</em></p>
+    <h1>Floating Combat Text</h1>
+    <p>Floating Combat Text (FCT) displays damage and healing numbers directly in the 3D game world, anchored to the bodies of your targets and your own character. Numbers pop in, float upward in a spreading arc, and fade away — giving you an instant visual sense of your combat output without looking at any window.</p>
+
+    <h2>Enabling FCT</h2>
+    <p>FCT is disabled by default. To turn it on:</p>
+    <ul>
+      <li>Type <code>/mydps fct</code> in chat, or</li>
+      <li>Open Settings &rarr; FCT tab and check <strong>Enable FCT</strong></li>
+    </ul>
+
+    <h2>What You See</h2>
+    <p>When FCT is active, damage and healing events appear as floating numbers near the relevant target:</p>
+    <ul>
+      <li><strong>Outgoing damage</strong> — Plain numbers (e.g., <em>2.5k</em>) floating up from the target</li>
+      <li><strong>Healing</strong> — Numbers with a + prefix (e.g., <em>+3.8k</em>) floating up from the healed player</li>
+      <li><strong>Incoming damage</strong> — Numbers with a - prefix (e.g., <em>-150</em>) floating up from your character</li>
+    </ul>
+    <p>Each number pops in at 1.4x size, shrinks to normal over 0.3 seconds, then floats upward in a slight arc. During the last 40% of its lifetime, the number fades to transparent. When multiple hits land on the same target in quick succession, they spray out at different angles to avoid overlapping.</p>
+
+    <!-- Video demo available -->
+    <div class="note">A video demonstration of FCT in action is available in the plugin distribution.</div>
+
+    <h2>Choosing What to Display</h2>
+    <p>In Settings &rarr; FCT, you can toggle each damage type individually:</p>
+    <table>
+      <thead>
+        <tr><th>Toggle</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Melee</td><td>Melee auto-attacks (hit, slash, crush, etc.)</td></tr>
+        <tr><td>DD (Direct Damage)</td><td>Spell direct damage</td></tr>
+        <tr><td>DoT</td><td>Damage-over-time ticks</td></tr>
+        <tr><td>Pet</td><td>Pet melee and spell damage</td></tr>
+        <tr><td>Crit</td><td>Critical hits (melee and spell)</td></tr>
+        <tr><td>Heals</td><td>Direct heals you cast</td></tr>
+        <tr><td>Crit Heals</td><td>Critical/exceptional heals</td></tr>
+        <tr><td>Hit By</td><td>Damage you receive</td></tr>
+        <tr><td>DS (Damage Shield)</td><td>Damage shield procs</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tip">If FCT feels too busy during large fights, try disabling DoTs and damage shields to reduce clutter while keeping the most important numbers visible.</div>
+
+    <h2>Customizing Appearance</h2>
+    <p>The FCT tab in Settings provides several sliders to control how floating text looks and behaves:</p>
+    <table>
+      <thead>
+        <tr><th>Setting</th><th>Range</th><th>Default</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Base Font Size</td><td>12 &ndash; 48</td><td>24</td><td>Base size of floating numbers</td></tr>
+        <tr><td>Font Scale</td><td>0.5 &ndash; 3.0</td><td>1.5</td><td>Multiplier applied to the base font size</td></tr>
+        <tr><td>Icon Scale</td><td>0.1 &ndash; 1.0</td><td>1.0</td><td>Size of icons displayed next to numbers</td></tr>
+        <tr><td>Float Distance</td><td>30 &ndash; 300</td><td>150</td><td>How far numbers travel upward before fading</td></tr>
+        <tr><td>Arc Scale</td><td>0.0 &ndash; 3.0</td><td>1.0</td><td>How wide numbers spread sideways (0 = straight up)</td></tr>
+        <tr><td>Shadow Offset</td><td>0.0 &ndash; 5.0</td><td>2.0</td><td>Thickness of the dark outline behind numbers for readability</td></tr>
+        <tr><td>Lifetime</td><td>1.0 &ndash; 5.0 sec</td><td>2.5</td><td>How long each number stays visible</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Colors</h2>
+    <p>Each damage type has its own color, and you can customize every one. The FCT configuration table shows all 19 damage types with a color swatch next to each. Click the swatch to open a color picker. If the Settings window is wide enough, the table automatically arranges several damage types side by side on each row to use the extra space; narrow the window and they stack back into a single column. The default color scheme is:</p>
+    <ul>
+      <li><strong>White</strong> — Standard melee (hit, crush, kick, bash, slash, pierce, bite)</li>
+      <li><strong>Red</strong> — Backstab, incoming melee damage (hit-by)</li>
+      <li><strong>Yellow</strong> — Critical hits, DoTs, incoming non-melee/spell damage (hit-by-non-melee)</li>
+      <li><strong>Cyan</strong> — Spell direct damage, critical heals</li>
+      <li><strong>Green</strong> — Damage shield procs</li>
+      <li><strong>Teal</strong> — Heals</li>
+      <li><strong>Purple</strong> — Pet damage</li>
+      <li><strong>Gray</strong> — Misses (display only, not shown as FCT)</li>
+    </ul>
+    <p>Use the <strong>Distinct Melee</strong> toggle to give each melee attack type (hit, kick, bash, slash, etc.) its own color instead of sharing one.</p>
+
+    <h2>Icons</h2>
+    <p>FCT can display small icons next to the damage numbers. There are two independent icon controls:</p>
+    <ul>
+      <li><strong>Icons</strong> checkbox — Turns icons on or off globally. When off, no icons appear regardless of other settings.</li>
+      <li><strong>Use Spell Icons</strong> option — When icons are on, this switches each damage type to use actual spell icons from the game instead of generic default icons.</li>
+    </ul>
+    <p>You can also customize the icon for each individual damage type using the icon picker. Click the icon button next to a damage type in the FCT configuration table to open the icon picker dialog. The picker has two tabs — <strong>Spell Icons</strong> and <strong>Item Icons</strong> — that you switch between to browse the available icons. Next to each type are two small buttons: the <strong>remove</strong> button (a circle with a slash) sets that damage type to show no icon at all, and the <strong>reset</strong> button (an undo arrow) restores its default icon. Hover either button to see a tooltip describing what it does.</p>
+
+    <h2>Bone Anchoring</h2>
+    <p>Floating text is anchored to specific body parts (bones) on character models. This determines where numbers appear relative to the target:</p>
+    <table>
+      <thead>
+        <tr><th>Setting</th><th>Default</th><th>What It Controls</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Player Bone</td><td>Chest</td><td>Where healing and incoming damage numbers appear on your character</td></tr>
+        <tr><td>Other Bone</td><td>Legs</td><td>Where outgoing damage numbers appear on enemies and other targets</td></tr>
+      </tbody>
+    </table>
+    <p>You can choose from 28 bone positions including Head, Helm, Chest, Pelvis, Arms, Legs, and more. Experiment to find what looks best for your preferred camera angle.</p>
+
+    <img src="../media/cleric.png" alt="Floating combat text in action showing heal numbers" class="screenshot">
+    <p class="screenshot-caption">Floating combat text showing healing numbers anchored to group members.</p>
+
+    <div class="page-nav">
+      &larr; <a href="combat-overlay.html">Combat Overlay</a> |
+      Next: <a href="graphs.html">Graphs &amp; Charts &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

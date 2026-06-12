@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html" class="active">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-07</em></p>
+    <h1>Settings</h1>
+    <p>Open the settings window by clicking the gear icon in the menu bar or typing <code>/mydps config</code>. Settings are organized into five tabs: Display, Colors, FCT, Theme, and Patterns.</p>
+
+    <img src="../media/settings.png" alt="MQMyDPS settings window" class="screenshot">
+    <p class="screenshot-caption">The settings window showing the Display tab.</p>
+
+    <h2>Display Tab</h2>
+    <p>Controls what information is shown and how the interface behaves.</p>
+
+    <h3>Checkboxes</h3>
+    <table>
+      <thead>
+        <tr><th>Option</th><th>Default</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Show Type</td><td>On</td><td>Display the damage type (melee, DoT, etc.) in the combat overlay</td></tr>
+        <tr><td>Show Target</td><td>On</td><td>Display the target name in the combat overlay</td></tr>
+        <tr><td>Show My Misses</td><td>On</td><td>Include your missed attacks in tracking and display</td></tr>
+        <tr><td>Show Missed Me</td><td>On</td><td>Include enemy misses against you</td></tr>
+        <tr><td>Show Hit Me</td><td>On</td><td>Include incoming damage in tracking and display</td></tr>
+        <tr><td>Show Crit Heals</td><td>On</td><td>Include critical heals in tracking and display</td></tr>
+        <tr><td>Show Damage Shield</td><td>On</td><td>Include damage shield procs in tracking and display</td></tr>
+        <tr><td>Track Pet</td><td>On</td><td>Include pet damage in your totals</td></tr>
+        <tr><td>Show Combat Output</td><td>On</td><td>Show the combat overlay window</td></tr>
+        <tr><td>Sort Newest First</td><td>On</td><td>Display most recent battles at the top of history</td></tr>
+        <tr><td>Auto Start</td><td>Off</td><td>Begin tracking automatically when you log in</td></tr>
+        <tr><td>Lock Combat Output</td><td>On</td><td>Make the combat overlay click-through</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Sliders</h3>
+    <table>
+      <thead>
+        <tr><th>Slider</th><th>Range</th><th>Default</th><th>What It Controls</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Display Time</td><td>1 &ndash; 60 sec</td><td>10</td><td>How long entries stay visible in the combat overlay</td></tr>
+        <tr><td>Battle End Delay</td><td>1 &ndash; 30 sec</td><td>10</td><td>Seconds to wait after combat before finalizing a battle</td></tr>
+        <tr><td>Font Scale</td><td>0.5 &ndash; 2.0</td><td>1.0</td><td>Text size in the main window</td></tr>
+        <tr><td>Output Font Scale</td><td>0.5 &ndash; 2.0</td><td>1.0</td><td>Text size in the combat overlay</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tip">If the main window feels cramped, try increasing Font Scale to 1.2 or widening the window. The Current Battle tab automatically adapts its columns to fit the available width.</div>
+
+    <div class="tip"><strong>Type an exact value.</strong> Every slider in MQMyDPS supports precise entry: hold <strong>Ctrl</strong> and click the slider to open a small box where you can type the exact number, then press Enter (or Apply). This works for all sliders &mdash; here, on the FCT tab, and in the Icon Picker.</div>
+
+    <h2>Colors Tab</h2>
+    <p>Customize the colors used throughout the interface. Click any color swatch to open a color picker with an alpha (transparency) slider.</p>
+
+    <h3>Background Color</h3>
+    <p>Controls the background color of the combat overlay, including transparency. Lower the alpha value to make the overlay more see-through.</p>
+
+    <h3>UI Colors</h3>
+    <p>These colors are used in tables, graphs, and text throughout the main window:</p>
+    <table>
+      <thead>
+        <tr><th>Color</th><th>Where It Appears</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Damage Target</td><td>Target names in damage tables</td></tr>
+        <tr><td>Heal Target</td><td>Player names in healing tables</td></tr>
+        <tr><td>DPS</td><td>DPS values in tables and the menu bar</td></tr>
+        <tr><td>Duration</td><td>Duration values in tables</td></tr>
+        <tr><td>Average</td><td>Average damage values</td></tr>
+        <tr><td>Total</td><td>Total damage and healing values</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">Damage type colors (used in FCT and the combat overlay) are configured in the FCT tab, not the Colors tab.</div>
+
+    <h2>FCT Tab</h2>
+    <p>All Floating Combat Text settings are in this tab. For a full guide, see the <a href="floating-combat-text.html">Floating Combat Text</a> page. This tab includes the master enable toggle, per-type visibility checkboxes, animation sliders, per-type color pickers, icon configuration, and bone anchoring dropdowns.</p>
+
+    <h2>Theme Tab</h2>
+    <p>Choose from 11 visual themes that change the overall look of all MQMyDPS windows. Select a theme from the dropdown to apply it immediately. Available themes include various dark and light styles.</p>
+
+    <h2>Patterns Tab</h2>
+    <p>View and edit the chat patterns that MQMyDPS uses to recognize damage, healing, and miss messages. Patterns are stored in a per-server JSON file and can be customized for different server types (live, emulated, etc.). For full details on editing patterns, see the <a href="patterns.html">Chat Patterns</a> page.</p>
+
+    <h2>Peers Display</h2>
+    <p>The controls for sharing data with your other characters aren't in this settings window &mdash; they live on the <strong>Peers</strong> tab of the main window (the All/Server/Group/Raid filter) and on a few chat commands (<code>/mydps peers</code>, <code>/mydps filter</code>). Your chosen filter and whether peers are shown are remembered per character along with everything else. See <a href="group-sharing.html">Peers</a> for the full guide.</p>
+
+    <h2>Saving Settings</h2>
+    <p>Settings are saved automatically in these situations:</p>
+    <ul>
+      <li>When you zone</li>
+      <li>When you log out or go to character select</li>
+      <li>When the plugin is unloaded</li>
+      <li>When you close the settings window</li>
+      <li>When you click the Save button in the settings window</li>
+    </ul>
+    <p>Each character on each server has their own settings file, so you can have completely different configurations for each of your characters.</p>
+
+    <div class="warning">If you force-close EverQuest without properly logging out, your most recent settings changes may not be saved.</div>
+
+    <div class="page-nav">
+      &larr; <a href="graphs.html">Graphs &amp; Charts</a> |
+      Next: <a href="commands.html">Commands &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

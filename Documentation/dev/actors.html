@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Character Sharing — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html" class="active">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-06-06</em></p>
+    <h1>Cross-Character Sharing</h1>
+
+    <p>MQMyDPS shares live DPS, session totals, and finalized battles between your boxed characters so the <strong>Group</strong> tab and the peer live-meter can show everyone at once. It is built on MacroQuest's <strong>post office actor</strong> system, with <strong>protobuf</strong> as the wire format. The whole subsystem lives in <code>MyDPSActors.cpp</code> / <code>MyDPSActors.h</code>, the schema in <code>Proto/mydps.proto</code> (compiled to <code>Proto/mydps.pb.cc</code> / <code>.pb.h</code>), and an optional bridge to the MQMyChat plugin in <code>MyChatAPI.h</code>.</p>
+
+    <div class="note"><strong>No server traffic.</strong> Messages travel only between MacroQuest instances on the same machine (or however the post office is bridged). Each client publishes its own stats and listens for everyone else's on a shared mailbox.</div>
+
+    <h2>Message Flow</h2>
+    <div class="diagram">
+<pre>
+Local engine state                          Remote peers
+      |                                           |
+      v   (MyDPSActors::Pulse, every tick)        |
+  +---------------------------------+             |
+  | PublishLive      every 1s       |  protobuf   |
+  | PublishSession   every 3s       | --envelope--&gt; mailbox "mydps"
+  | PublishFinalizedBattle on end   |             |
+  | PruneStale       every 5s       |             |
+  +---------------------------------+             |
+      ^                                           |
+      |   OnReceive(msg)  &lt;----- mailbox "mydps" --+
+      |        |
+      |        +-- kLive    -&gt; update PeerRecord.live*
+      |        +-- kSession -&gt; update PeerRecord.session*
+      |        +-- kBattle  -&gt; append PeerRecord.battles (max 50)
+      |
+  m_peers : unordered_map&lt;key, PeerRecord&gt;
+      |
+      v   VisiblePeers(filterMode)  -&gt;  Peers tab / peer live-meter
+</pre>
+    </div>
+
+    <h2>Protobuf Schema (mydps.proto)</h2>
+    <p>Package <code>mq.proto.mydps</code>. Every message carries <code>server</code> + <code>character</code> for identity. A single <code>MyDPSEnvelope</code> wraps exactly one payload via a <code>oneof</code>, so the receiver dispatches on <code>payload_case()</code>.</p>
+
+    <h3>MyDPSEnvelope (oneof payload)</h3>
+    <table>
+        <tr><th>Field</th><th>#</th><th>Type</th></tr>
+        <tr><td><code>live</code></td><td>1</td><td>LiveSnapshot</td></tr>
+        <tr><td><code>battle</code></td><td>2</td><td>FinalizedBattle</td></tr>
+        <tr><td><code>session</code></td><td>3</td><td>SessionStats</td></tr>
+    </table>
+
+    <h3>LiveSnapshot — published every 1s while relevant</h3>
+    <table>
+        <tr><th>Field</th><th>#</th><th>Type</th><th>Meaning</th></tr>
+        <tr><td><code>server</code></td><td>1</td><td>string</td><td>Server short name</td></tr>
+        <tr><td><code>character</code></td><td>2</td><td>string</td><td>Character name</td></tr>
+        <tr><td><code>class_short</code></td><td>3</td><td>string</td><td>3-letter class code</td></tr>
+        <tr><td><code>in_combat</code></td><td>4</td><td>bool</td><td>Combat state</td></tr>
+        <tr><td><code>dps</code></td><td>5</td><td>float</td><td>Current battle DPS</td></tr>
+        <tr><td><code>total_damage</code></td><td>6</td><td>int64</td><td>Battle damage so far</td></tr>
+        <tr><td><code>hit_count</code></td><td>7</td><td>int32</td><td>Battle hits</td></tr>
+        <tr><td><code>crit_damage</code></td><td>8</td><td>int64</td><td>Crit damage</td></tr>
+        <tr><td><code>dot_damage</code></td><td>9</td><td>int64</td><td>DoT damage</td></tr>
+        <tr><td><code>pet_damage</code></td><td>10</td><td>int64</td><td>Pet damage</td></tr>
+        <tr><td><code>non_melee_damage</code></td><td>11</td><td>int64</td><td>Non-melee damage</td></tr>
+        <tr><td><code>ds_damage</code></td><td>12</td><td>int64</td><td>Damage-shield damage</td></tr>
+        <tr><td><code>direct_heals</code></td><td>13</td><td>int64</td><td>Direct heals</td></tr>
+        <tr><td><code>crit_heals</code></td><td>14</td><td>int64</td><td>Crit heals</td></tr>
+        <tr><td><code>duration_seconds</code></td><td>15</td><td>float</td><td>Battle duration</td></tr>
+    </table>
+
+    <h3>SessionStats — published every 3s</h3>
+    <table>
+        <tr><th>Field</th><th>#</th><th>Type</th><th>Meaning</th></tr>
+        <tr><td><code>server</code></td><td>1</td><td>string</td><td>Server short name</td></tr>
+        <tr><td><code>character</code></td><td>2</td><td>string</td><td>Character name</td></tr>
+        <tr><td><code>class_short</code></td><td>3</td><td>string</td><td>3-letter class code</td></tr>
+        <tr><td><code>total_damage</code></td><td>4</td><td>int64</td><td>Session damage total</td></tr>
+        <tr><td><code>total_heals</code></td><td>5</td><td>int64</td><td>Session heal total</td></tr>
+        <tr><td><code>session_dps</code></td><td>6</td><td>float</td><td>Session DPS</td></tr>
+        <tr><td><code>battle_count</code></td><td>7</td><td>int32</td><td>Battles this session</td></tr>
+    </table>
+
+    <h3>FinalizedBattle — published once when a battle ends</h3>
+    <p>Sent from <code>MyDPSEngine::FinalizeBattle</code> (<code>MQMyDPS.cpp:953</code>) via <code>actors.PublishFinalizedBattle(battle)</code>. Mirrors the local <a href="types.html">BattleData</a> minus the per-target maps. Fields: <code>server</code>, <code>character</code>, <code>battle_number</code>, <code>total_damage</code>, <code>crit_damage</code>, <code>dot_damage</code>, <code>pet_damage</code>, <code>non_melee_damage</code>, <code>ds_damage</code>, <code>direct_heals</code>, <code>crit_heals</code>, <code>hit_count</code>, <code>duration_seconds</code>, <code>dps</code>, <code>avg_damage</code>, <code>start_time_ms</code>.</p>
+
+    <h2>MyDPSActors Class</h2>
+    <p>Owned by the engine as the public member <code>MyDPSEngine::actors</code>. Holds the post office dropbox, the peer cache, and a freshly-rebuilt self record.</p>
+
+    <table>
+        <thead>
+            <tr><th>Method</th><th>File:Line</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>Init(engine, server, character)</code></td><td><code>MyDPSActors.cpp:125</code></td><td>Registers the actor via <code>mq::postoffice::AddActor(kMailbox, ...)</code>, seeds the self record, resets all timers</td></tr>
+            <tr><td><code>Shutdown()</code></td><td><code>MyDPSActors.cpp:154</code></td><td>Removes the dropbox and clears the peer cache</td></tr>
+            <tr><td><code>Pulse()</code></td><td><code>MyDPSActors.cpp:165</code></td><td>Time-gated driver: publishes live/session and prunes stale peers</td></tr>
+            <tr><td><code>PublishFinalizedBattle(const BattleData&amp;)</code></td><td><code>MyDPSActors.cpp:251</code></td><td>Immediately broadcasts a FinalizedBattle envelope</td></tr>
+            <tr><td><code>OnReceive(msg)</code></td><td><code>MyDPSActors.cpp:282</code></td><td>Parses an envelope and dispatches on <code>payload_case()</code></td></tr>
+            <tr><td><code>VisiblePeers(PeerFilterMode)</code></td><td><code>MyDPSActors.cpp:526</code></td><td>Rebuilds the self record, filters peers, returns a list sorted by <code>liveDPS</code> desc (self always included)</td></tr>
+            <tr><td><code>Peers()</code></td><td><code>MyDPSActors.h:85</code></td><td>Const access to the raw peer map</td></tr>
+            <tr><td><code>IsValid()</code></td><td><code>MyDPSActors.h:82</code></td><td>True once the actor registered successfully</td></tr>
+            <tr><td><code>DebugDump()</code></td><td><code>MyDPSActors.cpp:424</code></td><td>Logs mailbox state and counters (<code>/mydps peerdebug</code>)</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Mailbox &amp; Self-Filtering</h3>
+    <p>The mailbox name is the constant <code>kMailbox = "mydps"</code> (<code>MyDPSActors.cpp:14</code>). Publishing posts an envelope to <code>Address{ Mailbox = "mydps" }</code>; the post office echoes it to all subscribers <em>including the sender</em>, so every <code>OnReceive</code> branch first rejects its own messages with <code>ci_equals(msg.character(), m_character)</code> before updating a peer. Rejected self-echoes bump <code>m_selfIgnoredCount</code>; parse failures bump <code>m_parseFailCount</code> (both shown by <code>DebugDump</code>).</p>
+
+    <h2>Timing &amp; Pruning</h2>
+    <p>All intervals are constants at the top of <code>MyDPSActors.cpp</code> and are enforced inside <code>Pulse()</code> against <code>std::chrono::steady_clock</code>:</p>
+    <table>
+        <thead>
+            <tr><th>Constant</th><th>Value</th><th>Governs</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>kLiveInterval</code></td><td>1 s</td><td>How often LiveSnapshot is published</td></tr>
+            <tr><td><code>kSessionInterval</code></td><td>3 s</td><td>How often SessionStats is published</td></tr>
+            <tr><td><code>kPruneInterval</code></td><td>5 s</td><td>How often the stale sweep runs</td></tr>
+            <tr><td><code>kStaleAfter</code></td><td>60 s</td><td>A peer with no message for this long is erased</td></tr>
+            <tr><td><code>kMaxPeerBattles</code></td><td>50</td><td>Max battles kept per peer (FIFO eviction)</td></tr>
+        </tbody>
+    </table>
+    <p>Every received message refreshes that peer's <code>lastSeen</code>. <code>PruneStale</code> (<code>MyDPSActors.cpp:441</code>) erases any peer where <code>now - lastSeen &gt; kStaleAfter</code>, so a character that logs out or stops boxing disappears from the Peers tab within a minute.</p>
+
+    <h2>Peer Filter Modes</h2>
+    <p><code>PeerFilterMode</code> (<code>MyDPSActors.h:16</code>) controls which peers <code>VisiblePeers</code> returns. The UI radio buttons and the <code>/mydps filter</code> command both write the integer into <code>settings.peerFilterMode</code>.</p>
+    <table>
+        <thead>
+            <tr><th>Mode</th><th>Int</th><th>Includes</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>All</code></td><td>0</td><td>Every known peer</td></tr>
+            <tr><td><code>SameServer</code></td><td>1</td><td>Peers where <code>ci_equals(peer.server, m_server)</code></td></tr>
+            <tr><td><code>SameGroup</code></td><td>2</td><td>Same server <strong>and</strong> in your group roster</td></tr>
+            <tr><td><code>SameRaid</code></td><td>3</td><td>Same server <strong>and</strong> in your raid roster</td></tr>
+        </tbody>
+    </table>
+    <p>For Group/Raid modes the roster is built fresh each call from <code>GetLocalGroupNames()</code> / <code>GetLocalRaidNames()</code> (walking <code>pLocalPC-&gt;Group</code> up to <code>MAX_GROUP_SIZE</code> and <code>pRaid-&gt;RaidMember</code> up to <code>MAX_RAID_SIZE</code>), and membership is tested with the case-insensitive <code>ContainsName</code> helper (<code>MyDPSActors.cpp:60</code>). The local character is always pushed first via <code>BuildSelfRecord()</code>.</p>
+
+    <h3>The Self Record</h3>
+    <p><code>BuildSelfRecord()</code> (<code>MyDPSActors.cpp:457</code>) reconstructs <code>m_selfRecord</code> from live engine state on every <code>VisiblePeers</code> call — battle accumulators, <code>GetBattleDPS()</code>/<code>GetSessionDPS()</code>/<code>GetBattleDuration()</code>, and the last <code>kMaxPeerBattles</code> entries of <code>battleHistory</code>. This keeps "you" on the Peers tab perfectly in sync without round-tripping through the post office. Its color is assigned at <code>Init</code> via <code>PeerColorForName()</code> (a deterministic FNV-1a hash into a 12-entry palette), and re-assigned in <code>BuildSelfRecord()</code> if still at the default white.</p>
+
+    <h2>PeerRecord &amp; PeerBattle</h2>
+    <p>See <a href="types.html">Types &amp; Constants</a> for the full field lists. In short: <code>PeerRecord</code> holds identity (<code>server</code>, <code>character</code>, <code>classShort</code>, <code>isSelf</code>), the <code>live*</code> block (from LiveSnapshot), the <code>session*</code> block (from SessionStats), a <code>std::deque&lt;PeerBattle&gt; battles</code> (from FinalizedBattle, capped at 50), a UI <code>color</code>, and a <code>lastSeen</code> timestamp.</p>
+
+    <h2>MQMyChat Bridge (MyChatAPI.h)</h2>
+    <p><code>MyChatAPI.h</code> declares the <code>ChatAPI</code> plugin interface exported by the separate MQMyChat plugin. It is retrieved at runtime with <code>GetChatAPI()</code>, which wraps <code>mq::GetPluginInterface("MQMyChat")</code> and returns <code>nullptr</code> when MQMyChat is not loaded. The engine uses it to route battle reports to a named chat channel — see <a href="mychat-integration.html">MQMyChat Integration</a>. This bridge is independent of the actor/protobuf peer sharing described above.</p>
+
+    <div class="warning"><strong>Protobuf is generated.</strong> <code>Proto/mydps.pb.cc</code> and <code>.pb.h</code> are committed but generated from <code>mydps.proto</code>. If you change the schema, regenerate them rather than hand-editing. See <a href="building.html">Building</a>.</div>
+
+    <h2>Engine Integration Points</h2>
+    <table>
+        <thead>
+            <tr><th>Hook / method</th><th>Call</th><th>File:Line</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>OnPulse (lazy init)</td><td><code>actors.Init(...)</code> once <code>pLocalPC</code> is ready</td><td><code>MQMyDPS.cpp:91</code></td></tr>
+            <tr><td>OnPulse</td><td><code>actors.Pulse()</code></td><td><code>MQMyDPS.cpp:95</code></td></tr>
+            <tr><td>LoadCharacterSettings</td><td><code>actors.Init(this, serverName, charName)</code></td><td><code>MQMyDPS.cpp:364</code></td></tr>
+            <tr><td>FinalizeBattle</td><td><code>actors.PublishFinalizedBattle(battle)</code></td><td><code>MQMyDPS.cpp:953</code></td></tr>
+            <tr><td>UnloadCharacterSettings</td><td><code>actors.Shutdown()</code></td><td><code>MQMyDPS.cpp:575</code></td></tr>
+            <tr><td><code>/mydps peerdebug</code></td><td><code>actors.DebugDump()</code></td><td><code>MQMyDPS.cpp:289</code></td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-nav">
+        <a href="fct.html">&larr; Floating Combat Text</a> |
+        <a href="commands-tlo.html">Next: Commands &amp; TLO &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

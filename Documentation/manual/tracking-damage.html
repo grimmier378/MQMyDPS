@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tracking Damage — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html" class="active">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-06-07</em></p>
+    <h1>Tracking Damage</h1>
+    <p>The main DPS Report window organizes your combat data across several tabs: Current Battle, History, Targets, and Healing (described below), plus a <a href="graphs.html">Graphs</a> tab and a <a href="group-sharing.html">Peers</a> tab for your boxed characters, each covered on its own page.</p>
+
+    <div class="tip"><strong>Pop out any tab.</strong> Click the tab you want, then right-click the tab bar and choose <strong>Pop Out</strong> to move that tab into its own window you can position anywhere. Close that window to dock the tab back in the main window.</div>
+
+    <h2>Current Battle</h2>
+    <p>This tab shows live statistics for the fight in progress. The table adapts its columns to fit the window width, showing as many of these as space allows:</p>
+    <table>
+      <thead>
+        <tr><th>Column</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>DPS</td><td>Damage per second for this battle</td></tr>
+        <tr><td>Duration</td><td>How long the fight has lasted</td></tr>
+        <tr><td>Total</td><td>Total damage dealt</td></tr>
+        <tr><td>Avg</td><td>Average damage per hit</td></tr>
+        <tr><td>Hits</td><td>Number of successful hits</td></tr>
+        <tr><td>Crits</td><td>Number of critical strikes</td></tr>
+        <tr><td>DoTs</td><td>Damage from damage-over-time spells</td></tr>
+        <tr><td>Pet</td><td>Damage dealt by your pet</td></tr>
+        <tr><td>Non-Melee</td><td>Direct damage from spells</td></tr>
+        <tr><td>Heals</td><td>Total healing done</td></tr>
+        <tr><td>Crit Heals</td><td>Healing from critical heals</td></tr>
+      </tbody>
+    </table>
+
+    <p>Below the stats, two additional tables show:</p>
+    <ul>
+      <li><strong>Targets</strong> — Each target you are fighting, with their name, your DPS against them, hit count, and total damage</li>
+      <li><strong>Healed Players</strong> — Each player you have healed, with their name, number of heals, and total healing</li>
+    </ul>
+
+    <div class="note">When no battle is active, this tab displays a message indicating there is no current combat data.</div>
+
+    <h2>History</h2>
+    <p>The History tab keeps a record of all completed battles during your session. Each battle appears as a row in a sortable table with up to 13 columns:</p>
+
+    <table>
+      <thead>
+        <tr><th>Column</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Battle #</td><td>Sequential battle number</td></tr>
+        <tr><td>DPS</td><td>Overall DPS for that battle</td></tr>
+        <tr><td>Duration</td><td>Total fight time</td></tr>
+        <tr><td>Avg</td><td>Average damage per hit</td></tr>
+        <tr><td>Melee</td><td>Melee damage total</td></tr>
+        <tr><td>Crits</td><td>Critical strike damage</td></tr>
+        <tr><td>DoTs</td><td>DoT damage total</td></tr>
+        <tr><td>Pet</td><td>Pet damage total</td></tr>
+        <tr><td>Non-Melee</td><td>Spell direct damage</td></tr>
+        <tr><td>Heals</td><td>Healing total</td></tr>
+        <tr><td>Crit Heals</td><td>Critical heal total</td></tr>
+        <tr><td>Total Damage</td><td>All damage combined</td></tr>
+        <tr><td>Total Heals</td><td>All healing combined</td></tr>
+      </tbody>
+    </table>
+
+    <p>You can customize this table in several ways:</p>
+    <ul>
+      <li><strong>Sort</strong> — Click any column header to sort by that column</li>
+      <li><strong>Reorder columns</strong> — Drag column headers to rearrange them</li>
+      <li><strong>Hide columns</strong> — Right-click a column header to show or hide columns</li>
+      <li><strong>Resize columns</strong> — Drag the edges of column headers</li>
+      <li><strong>Expand battles</strong> — Click a battle row to expand it and see per-target breakdowns and healed players</li>
+    </ul>
+
+    <div class="tip">Use the <strong>Sort Newest First</strong> option in Settings to control whether the most recent battle appears at the top or bottom of the list.</div>
+
+    <h2>Targets</h2>
+    <p>The Targets tab provides two views:</p>
+    <ul>
+      <li><strong>Current Battle Targets</strong> — Every target in your active fight, showing DPS, hits, average damage, and total damage per target</li>
+      <li><strong>All Session Targets</strong> — Accumulated damage to every target across all battles in your session</li>
+    </ul>
+    <p>This is useful for seeing exactly how your damage distributes across multiple enemies in a pull, or your total session output against a specific mob type.</p>
+
+    <h2>Healing</h2>
+    <p>The Healing tab shows your session healing summary with a table listing each player you have healed:</p>
+    <table>
+      <thead>
+        <tr><th>Column</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Player</td><td>Name of the player you healed</td></tr>
+        <tr><td>Direct Heals</td><td>Total from non-critical heals</td></tr>
+        <tr><td>Crit Heals</td><td>Total from critical heals</td></tr>
+        <tr><td>Count</td><td>Number of heal casts</td></tr>
+        <tr><td>Total</td><td>Direct (non-critical) healing total for that player (critical heals are shown in their own column and are not added into this Total)</td></tr>
+      </tbody>
+    </table>
+    <p>A pie chart below the table visualizes how your healing was distributed across players, making it easy to see who received the most attention.</p>
+
+    <h2>How Battles Work</h2>
+    <p>MQMyDPS automatically detects when you enter and leave combat:</p>
+    <ol>
+      <li><strong>Combat begins</strong> when you deal damage to an enemy (misses do not count).</li>
+      <li><strong>Combat is active</strong> as long as you are fighting. All damage, healing, and related events are recorded.</li>
+      <li><strong>Pending end</strong> — When the game reports you are no longer in combat, MQMyDPS waits a configurable delay (default: 10 seconds) before finalizing the battle. This prevents brief pauses between pulls from splitting one fight into two.</li>
+      <li><strong>Battle finalized</strong> — After the delay, the battle is saved to your History and a summary report is generated.</li>
+    </ol>
+
+    <div class="tip">If battles are splitting too often, increase the <strong>Battle End Delay</strong> in Settings. If they are merging too many pulls together, decrease it.</div>
+
+    <h2>Number Formatting</h2>
+    <p>Large numbers are automatically abbreviated throughout the interface for readability:</p>
+    <table>
+      <thead>
+        <tr><th>Value Range</th><th>Display Format</th><th>Example</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1,000,000 and above</td><td>X.Xm</td><td>1,234,567 &rarr; 1.2m</td></tr>
+        <tr><td>1,000 to 999,999</td><td>X.Xk</td><td>42,500 &rarr; 42.5k</td></tr>
+        <tr><td>Below 1,000</td><td>Plain number</td><td>750 &rarr; 750</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Pet Tracking</h2>
+    <p>When the <strong>Track Pet</strong> option is enabled (on by default), MQMyDPS includes your pet's damage in your totals. Your pet's melee and spell damage are combined into a single Pet total, shown in Current Battle, History, and Graphs.</p>
+
+    <img src="../media/shadowknight.png" alt="DPS tracking in action on a shadowknight" class="screenshot">
+    <p class="screenshot-caption">The main DPS Report window showing live combat tracking.</p>
+
+    <div class="page-nav">
+      &larr; <a href="getting-started.html">Getting Started</a> |
+      Next: <a href="combat-overlay.html">Combat Overlay &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

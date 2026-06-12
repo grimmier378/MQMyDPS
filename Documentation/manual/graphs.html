@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Graphs &amp; Charts — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html" class="active">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-05-18</em></p>
+    <h1>Graphs &amp; Charts</h1>
+    <p>The Graphs tab in the main DPS Report window gives you visual representations of your combat performance across battles. Four graph types are available, and you can enable any combination of them.</p>
+
+    <img src="../media/graphs.png" alt="MQMyDPS graphs showing DPS trends and damage breakdowns" class="screenshot">
+    <p class="screenshot-caption">The Graphs tab showing DPS trends and damage breakdown charts.</p>
+
+    <h2>Graph Types</h2>
+
+    <h3>DPS Line Graph</h3>
+    <p>A single line tracking your DPS across battles. This is the simplest view — it shows how your damage output varies from fight to fight, making it easy to spot trends or identify when you had a particularly strong or weak battle.</p>
+
+    <h3>Damage Breakdown</h3>
+    <p>A multi-line graph that splits your damage into categories on separate axes:</p>
+    <ul>
+      <li><strong>Left axis</strong> — Melee, direct damage, DoT, and pet damage</li>
+      <li><strong>Right axis (top)</strong> — Critical strike damage</li>
+      <li><strong>Right axis (bottom)</strong> — Healing and critical healing</li>
+    </ul>
+    <p>This chart helps you understand the composition of your damage over time. For example, you might notice that your DoT damage rises significantly during longer fights while melee stays consistent.</p>
+
+    <h3>Bar Chart</h3>
+    <p>Groups seven colored bars for each battle, showing:</p>
+    <ul>
+      <li>Melee damage</li>
+      <li>Direct damage (spells)</li>
+      <li>DoT damage</li>
+      <li>Pet damage</li>
+      <li>Critical damage</li>
+      <li>Healing</li>
+      <li>Critical healing</li>
+    </ul>
+    <p>Bar charts make it easy to compare the relative contribution of each damage type within and across battles.</p>
+
+    <h3>Pie Chart</h3>
+    <p>Shows how your damage was distributed across different targets by name for the entire session — it is cumulative across all battles recorded since your last reset, not just the most recent fight. Each slice represents a target, sized by the total damage you have dealt to it across all those battles. This is particularly useful to see where your damage has gone over a longer play session.</p>
+
+    <h2>Controls</h2>
+    <p>At the top of the Graphs tab, you will find a checkbox for each graph type. Check or uncheck them to show or hide individual graphs.</p>
+
+    <p>Each graph has its own scroll bar and navigation:</p>
+    <table>
+      <thead>
+        <tr><th>Control</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Scroll bar</td><td>Navigate through your battle history (shows "Battles X-Y of Z")</td></tr>
+      </tbody>
+    </table>
+    <p>When the scroll bar is moved all the way to the right, the graph automatically follows the newest battles as they come in. If you scroll back to look at earlier battles, it stops auto-following until you return the slider to the far right.</p>
+
+    <div class="note">Graphs display the last 50 battles in view at a time, with up to 250 battles stored in history. Older battles cycle out as new ones are recorded.</div>
+
+    <div class="tip">Enable just the DPS Line Graph for a clean, minimal view during grinding sessions. Turn on all four graphs when you want a comprehensive breakdown after a raid or named fight.</div>
+
+    <div class="page-nav">
+      &larr; <a href="floating-combat-text.html">Floating Combat Text</a> |
+      Next: <a href="settings.html">Settings &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

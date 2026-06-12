@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spawn ID Tracking — MQMyDPS Dev Docs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="sidebar">
+    <h2>MQMyDPS Dev Docs</h2>
+    <ul>
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="types.html">Types &amp; Constants</a></li>
+        <li><a href="lifecycle.html">Plugin Lifecycle</a></li>
+        <li><a href="parsing.html">Pattern Engine</a></li>
+        <li><a href="spawn-tracking.html" class="active">Spawn ID Tracking</a></li>
+        <li><a href="rendering.html">ImGui Rendering</a></li>
+        <li><a href="widgets.html">Styled Widgets</a></li>
+        <li><a href="fct.html">Floating Combat Text</a></li>
+        <li><a href="actors.html">Cross-Character Sharing</a></li>
+        <li><a href="commands-tlo.html">Commands &amp; TLO</a></li>
+        <li><a href="mychat-integration.html">MQMyChat Integration</a></li>
+        <li><a href="building.html">Building</a></li>
+    </ul>
+</nav>
+<main class="content">
+    <p><em>Last Updated: 2026-05-18</em></p>
+    <h1>Spawn ID Tracking</h1>
+
+    <h2>The Problem</h2>
+    <p>EQ chat identifies targets by name only. A damage message says "You slash a gnoll for 150 points of damage" but never tells you <em>which</em> gnoll. In a camp with three gnolls of the same name, all damage would be merged into a single entry without spawn ID resolution. The plugin needs unique per-mob attribution for accurate per-target DPS breakdowns.</p>
+
+    <h2>Resolution Chain</h2>
+    <p><code>ResolveSpawnID</code> (<code>MQMyDPS.cpp:1038</code>) tries strategies in priority order, returning the first match. The chain is designed so that the most reliable and fastest checks run first, with progressively more speculative methods as fallbacks.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Strategy</th>
+                <th>Applies To</th>
+                <th>How It Works</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>1</td>
+                <td>Empty name &rarr; synthetic ID</td>
+                <td>All types</td>
+                <td>If <code>record.targetName</code> is empty, immediately returns <code>--m_syntheticIDCounter</code> (a negative ID). This handles Crit/CritHeal records that arrive without a target name.</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td>pTarget match</td>
+                <td>Melee, NonMelee, Crit</td>
+                <td>Compares <code>pTarget-&gt;DisplayedName</code> to <code>record.targetName</code>. If they match, returns <code>pTarget-&gt;SpawnID</code>. This is the fastest and most reliable strategy for direct combat &mdash; the player's current target is almost always the mob they are hitting.</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td>Pet target</td>
+                <td>PetMelee, PetNonMelee</td>
+                <td>Gets the player's pet via <code>pLocalPlayer-&gt;PetID</code>, then checks <code>pPet-&gt;WhoFollowing</code> (the pet's current target). If the pet's target name matches, returns its spawn ID. Pets have their own target independent of the player.</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td>DoT registry</td>
+                <td>DoT</td>
+                <td>Calls <code>ResolveDoTSpawnID</code> (<code>MQMyDPS.cpp:1109</code>) which searches <code>activeDoTs</code> for an entry matching both <code>targetName</code> and <code>spellName</code>. If the spell name is empty, matches on target name alone. Falls through to pTarget check if no DoT match found.</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td>currentTargets cache</td>
+                <td>All types (fallback)</td>
+                <td>Linear scan of the per-battle <code>currentTargets</code> map. If any existing entry has a matching name, returns its spawn ID. This prevents re-resolution when the same mob is hit repeatedly &mdash; once resolved, the ID is reused.</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td>XTarget scan</td>
+                <td>All types (fallback)</td>
+                <td>Calls <code>ResolveFromXTarget</code> (<code>MQMyDPS.cpp:1121</code>). Scans the extended target list with strict filters: non-empty slots, matching name, <code>SPAWN_NPC</code> type only, excludes player pets (<code>MasterID</code> check verifies the master is not a player). Only returns a match if <strong>exactly one</strong> candidate is found.</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td>Synthetic fallback</td>
+                <td>All types (last resort)</td>
+                <td>Returns <code>--m_syntheticIDCounter</code>. Synthetic IDs are always negative, so they never collide with real spawn IDs (which are positive). Each unresolvable target gets its own unique negative ID.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Why This Order?</h3>
+    <p>The strategies are ordered by reliability and specificity:</p>
+    <ul>
+        <li><strong>pTarget (strategy 2)</strong> is fastest &mdash; a single pointer dereference and string comparison. It is also the most reliable for direct melee/spell hits because the player must have the mob targeted to attack it.</li>
+        <li><strong>Pet target (strategy 3)</strong> is needed because pets have their own target. The player might be targeting mob A while the pet attacks mob B.</li>
+        <li><strong>DoT registry (strategy 4)</strong> handles asynchronous tick arrival. A DoT tick message arrives seconds after the spell was cast, and the player may have changed targets. The registry maps spell+target to the spawn ID recorded at cast time. Falls through to pTarget as a secondary check for DoTs since the caster may still be targeting the same mob.</li>
+        <li><strong>currentTargets (strategy 5)</strong> prevents re-resolution overhead. Once a mob has been resolved by any earlier strategy, subsequent hits reuse the cached ID without needing to check targets or XTarget lists.</li>
+        <li><strong>XTarget (strategy 6)</strong> is the most conservative strategy. It deliberately requires exactly 1 match to avoid ambiguity. If two gnolls with the same name are on the XTarget list, it falls through rather than guessing.</li>
+        <li><strong>Synthetic (strategy 7)</strong> is the last resort. A synthetic ID keeps the target's damage separate from all other targets, even if the name matches another mob. This is better than merging damage with a wrong target.</li>
+    </ul>
+
+    <div class="warning">
+        <strong>Warning:</strong> A wrong spawn ID is worse than a synthetic one. Wrong IDs merge damage from different mobs, corrupting both targets' DPS calculations. Strategy 6 (XTarget) deliberately falls through on ambiguous names &mdash; two mobs with the same name on XTarget means neither can be reliably identified, so a synthetic ID is safer.
+    </div>
+
+    <h2>DoT Cast Tracking</h2>
+    <p><code>TrackDoTCasting</code> (<code>MQMyDPS.cpp:1170</code>) runs every 250ms in <code>OnPulse</code>. It monitors the player's <code>CastingData.SpellID</code> for state transitions:</p>
+
+    <h3>Cast Detection</h3>
+    <ol>
+        <li><strong>Casting in progress</strong> (<code>SpellID != -1</code>): Records <code>m_lastCastSpellID</code>, <code>m_lastCastTargetID</code>, and <code>m_lastCastSpellIcon</code> from the current casting data.</li>
+        <li><strong>Cast completed</strong> (<code>SpellID == -1</code> after being non-<code>-1</code>): Checks if the last cast spell is both a DoT (<code>IsDoTSpell()</code>) and detrimental (<code>IsDetrimentalSpell()</code>). If so, looks up the target spawn by <code>m_lastCastTargetID</code> and creates an <code>ActiveDoT</code> entry with the target's spawn ID, displayed name, spell name, spell icon, and current timestamp.</li>
+        <li><strong>Reset:</strong> After processing, <code>m_lastCastSpellID</code> is reset to <code>-1</code> and <code>m_lastCastTargetID</code> to <code>0</code>.</li>
+    </ol>
+
+    <h3>Cleanup</h3>
+    <p>Active DoTs are cleaned up through three mechanisms:</p>
+    <ul>
+        <li><strong>OnRemoveSpawn:</strong> When a mob despawns, <code>RemoveActiveDoTs(pSpawn-&gt;SpawnID)</code> removes all DoT entries for that spawn ID.</li>
+        <li><strong>OnBeginZone:</strong> Clears the entire <code>activeDoTs</code> vector on zone transitions.</li>
+        <li><strong>5-minute expiry:</strong> <code>TrackDoTCasting</code> runs <code>erase(remove_if(...))</code> at the end of every call, removing any entry older than 5 minutes. This catches DoTs on mobs that expired or were dispelled without a despawn event.</li>
+    </ul>
+
+    <div class="diagram">
+Player casts Venom of the Snake on Gnoll #47
+  |
+  |  OnPulse: SpellID = 1234, TargetID = 47
+  |  Records m_lastCastSpellID=1234, m_lastCastTargetID=47
+  v
+Cast completes (SpellID returns to -1)
+  |
+  |  OnPulse: IsDoTSpell(1234) && IsDetrimentalSpell(1234) = true
+  |  GetSpawnByID(47) -> "a gnoll"
+  |  Pushes ActiveDoT{targetSpawnID=47, targetName="a gnoll",
+  |                    spellName="Venom of the Snake", ...}
+  v
+Tick arrives: "A gnoll has taken 300 damage from your Venom of the Snake."
+  |
+  |  PatternEngine: BuildDoT -> targetName="A gnoll", spellName="Venom of the Snake"
+  |  ResolveSpawnID -> ResolveDoTSpawnID("A gnoll", "Venom of the Snake")
+  |  Finds match in activeDoTs -> returns 47
+  v
+Damage attributed to spawn #47
+    </div>
+
+    <h2>Crit Path Target Initialization</h2>
+    <div class="note">
+        <strong>Note:</strong> When a Crit or DeadlyStrike record arrives, it has no target name in the chat message itself (e.g., "You score a critical hit! (2500)"). <code>RecordDamage</code> (<code>MQMyDPS.cpp:642</code>) fills in the target name from <code>pTarget-&gt;DisplayedName</code> if available. If a Crit is the first hit on a new spawn ID, it initializes the target entry in <code>currentTargets</code> with the name, spawn ID, and <code>firstHit</code> timestamp. Without this initialization, the Targets tab would show blank entries for mobs whose first recorded hit was a crit.
+    </div>
+
+    <p>The crit path also updates <code>critDamage</code> on the target entry separately from <code>totalDamage</code>. This is because crit damage is reported as the total hit value (melee + crit bonus combined), so it is tracked in its own accumulator to avoid double-counting in breakdown displays.</p>
+
+    <div class="page-nav">
+        <a href="parsing.html">&larr; Pattern Engine</a>
+        <span> | </span>
+        <a href="rendering.html">Next: ImGui Rendering &rarr;</a>
+    </div>
+</main>
+</body>
+</html>

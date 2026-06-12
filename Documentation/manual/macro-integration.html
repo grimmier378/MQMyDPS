@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macro Integration — MQMyDPS User Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <h2>MQMyDPS User Manual</h2>
+    <ul>
+      <li><a href="index.html">Welcome</a></li>
+      <li><a href="getting-started.html">Getting Started</a></li>
+      <li><a href="tracking-damage.html">Tracking Damage</a></li>
+      <li><a href="combat-overlay.html">Combat Overlay</a></li>
+      <li><a href="floating-combat-text.html">Floating Combat Text</a></li>
+      <li><a href="graphs.html">Graphs &amp; Charts</a></li>
+      <li><a href="group-sharing.html">Peers</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="commands.html">Commands</a></li>
+      <li><a href="patterns.html">Chat Patterns</a></li>
+      <li><a href="macro-integration.html" class="active">Macro Integration</a></li>
+    </ul>
+  </nav>
+  <main class="content">
+    <p><em>Last Updated: 2026-05-18</em></p>
+    <h1>Macro Integration</h1>
+    <p>MQMyDPS exposes your combat data through a Top-Level Object (TLO) that you can access from macros and Lua scripts. This lets you build custom triggers, displays, or automation based on your real-time DPS data.</p>
+
+    <h2>Session Data</h2>
+    <p>These members provide information about your overall session and current combat state:</p>
+    <table>
+      <thead>
+        <tr><th>Expression</th><th>Returns</th><th>What It Provides</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>${MyDPS.Version}</code></td><td>Number</td><td>Plugin version number</td></tr>
+        <tr><td><code>${MyDPS.DPS}</code></td><td>Number</td><td>Your session DPS (total damage divided by total time)</td></tr>
+        <tr><td><code>${MyDPS.TotalDamage}</code></td><td>Number</td><td>Total damage dealt this session</td></tr>
+        <tr><td><code>${MyDPS.InCombat}</code></td><td>TRUE/FALSE</td><td>Whether you are currently in combat</td></tr>
+        <tr><td><code>${MyDPS.BattleDPS}</code></td><td>Number</td><td>DPS for the current battle only (0 if not in combat)</td></tr>
+        <tr><td><code>${MyDPS.BattleDuration}</code></td><td>Number</td><td>Current battle duration in seconds</td></tr>
+        <tr><td><code>${MyDPS.TargetCount}</code></td><td>Number</td><td>Number of distinct targets in the current battle</td></tr>
+        <tr><td><code>${MyDPS.BattleCount}</code></td><td>Number</td><td>Total number of completed battles this session</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Per-Target Data</h2>
+    <p>You can look up damage data for a specific target by spawn ID (number) or name (text):</p>
+    <table>
+      <thead>
+        <tr><th>Expression</th><th>Returns</th><th>What It Provides</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>${MyDPS.Target[id].Name}</code></td><td>Text</td><td>Target display name</td></tr>
+        <tr><td><code>${MyDPS.Target[id].SpawnID}</code></td><td>Number</td><td>Target spawn ID</td></tr>
+        <tr><td><code>${MyDPS.Target[id].DPS}</code></td><td>Number</td><td>Your DPS against this target</td></tr>
+        <tr><td><code>${MyDPS.Target[id].TotalDamage}</code></td><td>Number</td><td>Total damage dealt to this target</td></tr>
+        <tr><td><code>${MyDPS.Target[id].HitCount}</code></td><td>Number</td><td>Number of hits landed on this target</td></tr>
+        <tr><td><code>${MyDPS.Target[id].Duration}</code></td><td>Number</td><td>Time from first to last hit (minimum 1 second)</td></tr>
+        <tr><td><code>${MyDPS.Target[id].AvgDamage}</code></td><td>Number</td><td>Average damage per hit</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">Replace <code>id</code> with either a spawn ID number (e.g., <code>${MyDPS.Target[12345].DPS}</code>) or a target name (e.g., <code>${MyDPS.Target[a gnoll].DPS}</code>). Using spawn IDs is more reliable when multiple targets share the same name.</div>
+
+    <h2>Resetting Data</h2>
+    <p>You can reset all tracked data from a macro using the Reset method:</p>
+    <pre><code>${MyDPS.Reset[]}</code></pre>
+    <p>This method resets all tracked data and is equivalent to typing <code>/mydps reset</code>.</p>
+
+    <h2>Examples</h2>
+
+    <h3>Display Session DPS in Chat</h3>
+    <pre><code>/echo Session DPS: ${MyDPS.DPS}</code></pre>
+
+    <h3>Check Damage Against Your Current Target</h3>
+    <pre><code>/echo Damage to ${Target.CleanName}: ${MyDPS.Target[${Target.ID}].TotalDamage}</code></pre>
+
+    <h3>Conditional Combat Check</h3>
+    <pre><code>/if (${MyDPS.InCombat}) /echo Currently fighting ${MyDPS.TargetCount} targets</code></pre>
+
+    <h3>Look Up a Named Target</h3>
+    <pre><code>/echo DPS vs goblin: ${MyDPS.Target[a goblin].DPS}</code></pre>
+
+    <h3>Battle Count Summary</h3>
+    <pre><code>/echo Completed ${MyDPS.BattleCount} battles this session</code></pre>
+
+    <div class="tip">For the most reliable target lookups, use spawn IDs rather than names. Names can collide when multiple spawns share the same name (e.g., "a skeleton"), but spawn IDs are unique.</div>
+
+    <h2>MQMyChat Integration</h2>
+    <p>If you also have the MQMyChat plugin loaded, MQMyDPS automatically sends battle reports to the MQMyDPS chat channel when each fight ends, instead of printing them to your normal chat window. This gives you a persistent log of your combat performance that you can review in the MQMyChat window.</p>
+    <p>The integration is automatic — no configuration needed. Just have both plugins loaded:</p>
+    <pre><code>/plugin MQMyChat
+/plugin MQMyDPS</code></pre>
+
+    <p>When a battle ends, MQMyDPS sends a detailed report including DPS, total damage, hit count, duration, and per-target breakdowns. The <code>/mydps report</code> command also routes its output to the MQMyDPS channel instead of your normal chat window when MQMyChat is loaded.</p>
+
+    <div class="note">MQMyChat integration is completely optional. If MQMyChat is not loaded, MQMyDPS works exactly the same — battle reports print to your normal chat window.</div>
+
+    <div class="page-nav">
+      &larr; <a href="patterns.html">Chat Patterns</a>
+    </div>
+  </main>
+</body>
+</html>
